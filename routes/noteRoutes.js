@@ -329,47 +329,65 @@ router.post("/:noteId/buy", auth, async (req, res) => {
     }
 
     // 6️⃣ Split money (90/10)
-    const sellerShare = Math.floor(note.price * 0.9);
-    const developerShare = note.price - sellerShare;
+    // 6️⃣ Split money (developer-safe logic)
+const isDeveloperBuyer = buyer.isDeveloper === true;
+
+let sellerShare = note.price;
+let developerShare = 0;
+
+if (!isDeveloperBuyer) {
+  sellerShare = Math.floor(note.price * 0.9);
+  developerShare = note.price - sellerShare;
+}
 
     // 7️⃣ Update balances
-    buyer.walletBalance -= note.price;
-    seller.walletBalance += sellerShare;
-    developer.walletBalance += developerShare;
+   buyer.walletBalance -= note.price;
+seller.walletBalance += sellerShare;
 
-    buyer.purchasedNotes.push(noteId);
+if (developerShare > 0) {
+  developer.walletBalance += developerShare;
+}
 
-    await buyer.save();
-    await seller.save();
-    await developer.save();
+    // 8️⃣ Mark note as purchased
+buyer.purchasedNotes.push(noteId);
+
+// 9️⃣ Save users
+await buyer.save();
+await seller.save();
+if (developerShare > 0) await developer.save();
 
     // 8️⃣ Wallet transactions
-    await WalletTransaction.create([
-      {
-        user: buyer._id,
-        type: "DEBIT",
-        amount: note.price,
-        reason: "Purchased premium note",
-        relatedNote: note._id,
-        relatedUser: seller._id,
-      },
-      {
-        user: seller._id,
-        type: "CREDIT",
-        amount: sellerShare,
-        reason: "Sold premium note",
-        relatedNote: note._id,
-        relatedUser: buyer._id,
-      },
-      {
-        user: developer._id,
-        type: "CREDIT",
-        amount: developerShare,
-        reason: "Platform commission",
-        relatedNote: note._id,
-        relatedUser: buyer._id,
-      },
-    ]);
+    const transactions = [
+  {
+    user: buyer._id,
+    type: "DEBIT",
+    amount: note.price,
+    reason: "Purchased premium note",
+    relatedNote: note._id,
+    relatedUser: seller._id,
+  },
+  {
+    user: seller._id,
+    type: "CREDIT",
+    amount: sellerShare,
+    reason: "Sold premium note",
+    relatedNote: note._id,
+    relatedUser: buyer._id,
+  },
+];
+
+if (developerShare > 0) {
+  transactions.push({
+    user: developer._id,
+    type: "CREDIT",
+    amount: developerShare,
+    reason: "Platform commission",
+    relatedNote: note._id,
+    relatedUser: buyer._id,
+  });
+}
+
+await WalletTransaction.create(transactions);
 
     res.json({
       message: "Note purchased successfully",
