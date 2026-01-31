@@ -16,6 +16,15 @@ const UserSchema = new mongoose.Schema({
     ref: "Note",
   },
 ],
+  walletBalance:{
+    type:Number,
+    default:0,
+
+  },
+  isDeveloper: {
+  type: Boolean,
+  default: false
+}
 
 });
 

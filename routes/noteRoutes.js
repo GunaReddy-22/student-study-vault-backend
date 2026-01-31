@@ -1,6 +1,7 @@
 const express = require("express");
 const Note = require("../models/Note");
 const User = require("../models/User");
+const WalletTransaction = require("../models/WalletTransaction");
 const auth = require("../middleware/authMiddleware");
 
 const router = express.Router();
@@ -47,7 +48,7 @@ router.post("/", auth, async (req, res) => {
 });
 
 /* =========================
-   🌍 PUBLIC NOTES  (MUST BE ABOVE /:id)
+   🌍 PUBLIC NOTES
 ========================= */
 router.get("/public", async (req, res) => {
   try {
@@ -66,7 +67,7 @@ router.get("/public", async (req, res) => {
 });
 
 /* =========================
-   💰 PREMIUM NOTES (MUST BE ABOVE /:id)
+   💰 PREMIUM NOTES
 ========================= */
 router.get("/premium", async (req, res) => {
   try {
@@ -75,7 +76,8 @@ router.get("/premium", async (req, res) => {
       .sort({ createdAt: -1 });
 
     res.json(notes);
-  } catch {
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch premium notes" });
   }
 });
@@ -95,7 +97,7 @@ router.get("/", auth, async (req, res) => {
 });
 
 /* =========================
-   GET SINGLE NOTE (KEEP BELOW STATIC ROUTES)
+   GET SINGLE NOTE
 ========================= */
 router.get("/:id", auth, async (req, res) => {
   try {
@@ -177,7 +179,7 @@ router.delete("/:id", auth, async (req, res) => {
 });
 
 /* =========================
-   🔓 UNLOCK PREMIUM NOTE
+   🔓 UNLOCK PREMIUM NOTE (OLD FLOW – KEPT)
 ========================= */
 router.post("/premium/:id/unlock", auth, async (req, res) => {
   try {
@@ -275,6 +277,86 @@ router.get("/:id/comments", auth, async (req, res) => {
     res.json(note.comments);
   } catch {
     res.status(500).json({ message: "Failed to fetch comments" });
+  }
+});
+
+/* =========================
+   💳 BUY PREMIUM NOTE (WALLET FLOW)
+========================= */
+router.post("/:noteId/buy", auth, async (req, res) => {
+  try {
+    const buyerId = req.userId;
+    const { noteId } = req.params;
+
+    const note = await Note.findById(noteId);
+    if (!note) {
+      return res.status(404).json({ message: "Note not found" });
+    }
+
+    if (!note.isPremium) {
+      return res.status(400).json({ message: "This note is not premium" });
+    }
+
+    if (note.userId.toString() === buyerId) {
+      return res.status(400).json({ message: "You cannot buy your own note" });
+    }
+
+    const developer = await User.findOne({ isDeveloper: true });
+if (!developer) {
+  return res.status(500).json({ message: "Developer account missing" });
+}
+
+const sellerShare = Math.floor(note.price * 0.9);
+const developerShare = note.price - sellerShare;
+
+buyer.walletBalance -= note.price;
+seller.walletBalance += sellerShare;
+developer.walletBalance += developerShare;
+    if (!buyer || !seller) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (buyer.purchasedNotes.includes(noteId)) {
+      return res.status(400).json({ message: "Note already purchased" });
+    }
+
+    if (buyer.walletBalance < note.price) {
+      return res.status(400).json({ message: "Insufficient wallet balance" });
+    }
+
+    buyer.walletBalance -= note.price;
+    seller.walletBalance += note.price;
+    buyer.purchasedNotes.push(noteId);
+
+    await buyer.save();
+    await seller.save();
+
+    await WalletTransaction.create([
+      {
+        user: buyerId,
+        type: "DEBIT",
+        amount: note.price,
+        reason: "Purchased premium note",
+        relatedNote: noteId,
+        relatedUser: seller._id,
+      },
+      {
+        user: seller._id,
+        type: "CREDIT",
+        amount: note.price,
+        reason: "Sold premium note",
+        relatedNote: noteId,
+        relatedUser: buyerId,
+      },
+    ]);
+
+    res.json({
+      message: "Note purchased successfully",
+      balance: buyer.walletBalance,
+    });
+  } catch (err) {
+    console.error("Purchase failed:", err);
+    res.status(500).json({ message: "Purchase failed" });
   }
 });
 
