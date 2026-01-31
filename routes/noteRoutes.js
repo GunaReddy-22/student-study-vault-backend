@@ -283,37 +283,41 @@ router.get("/:id/comments", auth, async (req, res) => {
 /* =========================
    💳 BUY PREMIUM NOTE (WALLET FLOW)
 ========================= */
+/* =========================
+   💳 BUY PREMIUM NOTE (WALLET FLOW – FIXED)
+========================= */
 router.post("/:noteId/buy", auth, async (req, res) => {
   try {
     const buyerId = req.userId;
     const { noteId } = req.params;
 
+    // 1️⃣ Fetch note
     const note = await Note.findById(noteId);
-    if (!note) {
-      return res.status(404).json({ message: "Note not found" });
+    if (!note || !note.isPremium) {
+      return res.status(404).json({ message: "Premium note not found" });
     }
 
-    if (!note.isPremium) {
-      return res.status(400).json({ message: "This note is not premium" });
+    // 2️⃣ Buyer
+    const buyer = await User.findById(buyerId);
+    if (!buyer) {
+      return res.status(404).json({ message: "Buyer not found" });
     }
 
-    if (note.userId.toString() === buyerId) {
-      return res.status(400).json({ message: "You cannot buy your own note" });
+    // 3️⃣ Seller
+    const seller = await User.findById(note.userId);
+    if (!seller) {
+      return res.status(404).json({ message: "Seller not found" });
     }
 
+    // 4️⃣ Developer
     const developer = await User.findOne({ isDeveloper: true });
-if (!developer) {
-  return res.status(500).json({ message: "Developer account missing" });
-}
+    if (!developer) {
+      return res.status(500).json({ message: "Developer account missing" });
+    }
 
-const sellerShare = Math.floor(note.price * 0.9);
-const developerShare = note.price - sellerShare;
-
-buyer.walletBalance -= note.price;
-seller.walletBalance += sellerShare;
-developer.walletBalance += developerShare;
-    if (!buyer || !seller) {
-      return res.status(404).json({ message: "User not found" });
+    // 5️⃣ Safety checks
+    if (buyer._id.toString() === seller._id.toString()) {
+      return res.status(400).json({ message: "You cannot buy your own note" });
     }
 
     if (buyer.purchasedNotes.includes(noteId)) {
@@ -324,35 +328,52 @@ developer.walletBalance += developerShare;
       return res.status(400).json({ message: "Insufficient wallet balance" });
     }
 
+    // 6️⃣ Split money (90/10)
+    const sellerShare = Math.floor(note.price * 0.9);
+    const developerShare = note.price - sellerShare;
+
+    // 7️⃣ Update balances
     buyer.walletBalance -= note.price;
-    seller.walletBalance += note.price;
+    seller.walletBalance += sellerShare;
+    developer.walletBalance += developerShare;
+
     buyer.purchasedNotes.push(noteId);
 
     await buyer.save();
     await seller.save();
+    await developer.save();
 
+    // 8️⃣ Wallet transactions
     await WalletTransaction.create([
       {
-        user: buyerId,
+        user: buyer._id,
         type: "DEBIT",
         amount: note.price,
         reason: "Purchased premium note",
-        relatedNote: noteId,
+        relatedNote: note._id,
         relatedUser: seller._id,
       },
       {
         user: seller._id,
         type: "CREDIT",
-        amount: note.price,
+        amount: sellerShare,
         reason: "Sold premium note",
-        relatedNote: noteId,
-        relatedUser: buyerId,
+        relatedNote: note._id,
+        relatedUser: buyer._id,
+      },
+      {
+        user: developer._id,
+        type: "CREDIT",
+        amount: developerShare,
+        reason: "Platform commission",
+        relatedNote: note._id,
+        relatedUser: buyer._id,
       },
     ]);
 
     res.json({
       message: "Note purchased successfully",
-      balance: buyer.walletBalance,
+      remainingBalance: buyer.walletBalance,
     });
   } catch (err) {
     console.error("Purchase failed:", err);
