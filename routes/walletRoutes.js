@@ -55,25 +55,32 @@ router.post("/add-demo", auth, async (req, res) => {
     }
 
     const user = await User.findById(req.userId);
-    if (!user || !user.isDeveloper) {
-      return res.status(403).json({ message: "Only developer can add demo money" });
+
+    // 🔐 HARD BLOCK — DEV ONLY
+    if (!user || user.isDeveloper !== true) {
+      return res
+        .status(403)
+        .json({ message: "Demo wallet is disabled for users" });
     }
 
+    // 💰 ADD DEMO MONEY
     user.walletBalance += demoAmount;
     await user.save();
 
+    // 🧾 LOG TRANSACTION (CLEAR LABEL)
     await WalletTransaction.create({
       user: user._id,
       type: "CREDIT",
       amount: demoAmount,
-      reason: "Demo money added",
+      reason: "DEV DEMO CREDIT",
     });
 
     res.json({
-      message: "Demo money added",
+      message: "Demo money credited (Developer)",
       balance: user.walletBalance,
     });
   } catch (err) {
+    console.error("Demo money error:", err);
     res.status(500).json({ message: "Failed to add demo money" });
   }
 });
