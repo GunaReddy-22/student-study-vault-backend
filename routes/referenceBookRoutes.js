@@ -1,6 +1,10 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
+
 const ReferenceBook = require("../models/ReferenceBook");
 const User = require("../models/User");
+const WalletTransaction = require("../models/WalletTransaction");
 const auth = require("../middleware/authMiddleware");
 
 const router = express.Router();
@@ -64,7 +68,6 @@ router.get("/", async (req, res) => {
     const books = await ReferenceBook.find({ isActive: true }).sort({
       createdAt: -1,
     });
-
     res.json(books);
   } catch {
     res.status(500).json({ message: "Failed to fetch books" });
@@ -72,7 +75,7 @@ router.get("/", async (req, res) => {
 });
 
 /* =========================
-   📘 GET SINGLE BOOK
+   📘 GET SINGLE BOOK (PUBLIC)
 ========================= */
 router.get("/:id", async (req, res) => {
   try {
@@ -85,44 +88,6 @@ router.get("/:id", async (req, res) => {
     res.json(book);
   } catch {
     res.status(500).json({ message: "Failed to fetch book" });
-  }
-});
-
-/* =========================
-   ❌ DISABLE BOOK (DEV)
-========================= */
-router.patch("/:id/disable", auth, isDeveloper, async (req, res) => {
-  try {
-    const book = await ReferenceBook.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false },
-      { new: true }
-    );
-
-    if (!book) {
-      return res.status(404).json({ message: "Book not found" });
-    }
-
-    res.json({ message: "Book disabled" });
-  } catch {
-    res.status(500).json({ message: "Failed to disable book" });
-  }
-});
-
-/* =========================
-   🗑️ DELETE BOOK (DEV)
-========================= */
-router.delete("/:id", auth, isDeveloper, async (req, res) => {
-  try {
-    const book = await ReferenceBook.findByIdAndDelete(req.params.id);
-
-    if (!book) {
-      return res.status(404).json({ message: "Book not found" });
-    }
-
-    res.json({ message: "Book deleted permanently" });
-  } catch {
-    res.status(500).json({ message: "Delete failed" });
   }
 });
 
@@ -146,13 +111,11 @@ router.post("/:id/buy", auth, async (req, res) => {
       return res.status(400).json({ message: "Insufficient wallet balance" });
     }
 
-    // 🔍 Developer
     const developer = await User.findOne({ isDeveloper: true });
     if (!developer) {
       return res.status(500).json({ message: "Developer account missing" });
     }
 
-    // 💰 Transfer money
     user.walletBalance -= book.price;
     developer.walletBalance += book.price;
 
@@ -163,7 +126,6 @@ router.post("/:id/buy", auth, async (req, res) => {
     await developer.save();
     await book.save();
 
-    // 🧾 Transaction logs
     await WalletTransaction.create([
       {
         user: user._id,
@@ -198,10 +160,43 @@ router.get("/:id/access", auth, async (req, res) => {
   try {
     const user = await User.findById(req.userId);
     const hasAccess = user?.purchasedBooks.includes(req.params.id);
-
     res.json({ hasAccess });
   } catch {
     res.status(500).json({ message: "Access check failed" });
+  }
+});
+
+/* =========================
+   🔐 STREAM PDF (SECURE)
+========================= */
+router.get("/:id/pdf", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    const book = await ReferenceBook.findById(req.params.id);
+
+    if (!user || !book || !book.isActive) {
+      return res.status(404).json({ message: "Book not found" });
+    }
+
+    if (!user.purchasedBooks.includes(book._id)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const pdfPath = path.resolve(book.pdfUrl);
+
+    if (!fs.existsSync(pdfPath)) {
+      return res.status(404).json({ message: "PDF file missing" });
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    fs.createReadStream(pdfPath).pipe(res);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "PDF stream failed" });
   }
 });
 
