@@ -16,6 +16,12 @@ const UserSchema = new mongoose.Schema({
     ref: "Note",
   },
 ],
+  purchasedBooks: [
+  {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "ReferenceBook",
+  },
+],
   walletBalance:{
     type:Number,
     default:0,
