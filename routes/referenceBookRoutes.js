@@ -1,7 +1,7 @@
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
 const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 
 const ReferenceBook = require("../models/ReferenceBook");
 const User = require("../models/User");
@@ -11,59 +11,38 @@ const auth = require("../middleware/authMiddleware");
 const router = express.Router();
 
 /* =========================
-   📁 ENSURE UPLOAD FOLDERS
+   ☁️ CLOUDINARY CONFIG
 ========================= */
-const ensureDir = (dir) => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-};
-
-ensureDir("uploads");
-ensureDir("uploads/pdfs");
-ensureDir("uploads/covers");
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 /* =========================
-   📁 MULTER CONFIG
+   📁 MULTER + CLOUDINARY
 ========================= */
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => {
     if (file.fieldname === "pdf") {
-      cb(null, "uploads/pdfs");
-    } else if (file.fieldname === "cover") {
-      cb(null, "uploads/covers");
-    } else {
-      cb(new Error("Invalid file field"));
+      return {
+        folder: "reference_books/pdfs",
+        resource_type: "raw",
+        public_id: `pdf_${Date.now()}`, // 🔥 REQUIRED
+        format: "pdf",
+      };
     }
-  },
-  filename: (req, file, cb) => {
-    const uniqueName =
-      Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, uniqueName + path.extname(file.originalname));
+
+    return {
+      folder: "reference_books/covers",
+      resource_type: "image",
+      public_id: `cover_${Date.now()}`, // 🔥 REQUIRED
+    };
   },
 });
 
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.fieldname === "pdf") {
-      if (file.mimetype !== "application/pdf") {
-        return cb(new Error("Only PDF files allowed"));
-      }
-    }
-
-    if (file.fieldname === "cover") {
-      if (!file.mimetype.startsWith("image/")) {
-        return cb(new Error("Only image files allowed"));
-      }
-    }
-
-    cb(null, true);
-  },
-});
+const upload = multer({ storage });
 
 /* =========================
    🔐 DEV-ONLY MIDDLEWARE
@@ -82,7 +61,7 @@ const isDeveloper = async (req, res, next) => {
 };
 
 /* =========================
-   📚 CREATE REFERENCE BOOK (DEV)
+   📚 CREATE REFERENCE BOOK
 ========================= */
 router.post(
   "/",
@@ -100,13 +79,13 @@ router.post(
         return res.status(400).json({ message: "Missing fields" });
       }
 
-      if (!req.files || !req.files.pdf) {
+      if (!req.files?.pdf) {
         return res.status(400).json({ message: "PDF file required" });
       }
 
-      const pdfUrl = `/uploads/pdfs/${req.files.pdf[0].filename}`;
+      const pdfUrl = req.files.pdf[0].path;
       const coverImage = req.files.cover
-        ? `/uploads/covers/${req.files.cover[0].filename}`
+        ? req.files.cover[0].path
         : null;
 
       const book = await ReferenceBook.create({
@@ -122,13 +101,13 @@ router.post(
       res.status(201).json(book);
     } catch (err) {
       console.error("BOOK CREATE ERROR:", err);
-      res.status(500).json({ message: err.message || "Book creation failed" });
+      res.status(500).json({ message: err.message });
     }
   }
 );
 
 /* =========================
-   📚 GET ALL BOOKS (PUBLIC)
+   📚 GET ALL BOOKS
 ========================= */
 router.get("/", async (req, res) => {
   try {
@@ -136,32 +115,28 @@ router.get("/", async (req, res) => {
       createdAt: -1,
     });
     res.json(books);
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).json({ message: "Failed to fetch books" });
   }
 });
 
 /* =========================
-   📘 GET SINGLE BOOK (PUBLIC)
+   📘 GET SINGLE BOOK
 ========================= */
 router.get("/:id", async (req, res) => {
   try {
     const book = await ReferenceBook.findById(req.params.id);
-
     if (!book || !book.isActive) {
       return res.status(404).json({ message: "Book not found" });
     }
-
     res.json(book);
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).json({ message: "Failed to fetch book" });
   }
 });
 
 /* =========================
-   💳 BUY REFERENCE BOOK
+   💳 BUY BOOK
 ========================= */
 router.post("/:id/buy", auth, async (req, res) => {
   try {
@@ -181,13 +156,9 @@ router.post("/:id/buy", auth, async (req, res) => {
     }
 
     const developer = await User.findOne({ isDeveloper: true });
-    if (!developer) {
-      return res.status(500).json({ message: "Developer account missing" });
-    }
 
     user.walletBalance -= book.price;
     developer.walletBalance += book.price;
-
     user.purchasedBooks.push(book._id);
     book.purchases += 1;
 
@@ -212,10 +183,7 @@ router.post("/:id/buy", auth, async (req, res) => {
       },
     ]);
 
-    res.json({
-      message: "Book purchased successfully",
-      balance: user.walletBalance,
-    });
+    res.json({ message: "Book purchased successfully" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Purchase failed" });
@@ -223,50 +191,31 @@ router.post("/:id/buy", auth, async (req, res) => {
 });
 
 /* =========================
-   🔍 CHECK BOOK ACCESS
+   🔍 ACCESS CHECK
 ========================= */
 router.get("/:id/access", auth, async (req, res) => {
-  try {
-    const user = await User.findById(req.userId);
-    const hasAccess = user?.purchasedBooks.includes(req.params.id);
-    res.json({ hasAccess });
-  } catch (err) {
-    res.status(500).json({ message: "Access check failed" });
-  }
+  const user = await User.findById(req.userId);
+  res.json({
+    hasAccess: user?.purchasedBooks.includes(req.params.id),
+  });
 });
 
 /* =========================
-   🔐 STREAM PDF (SECURE)
+   🔐 SECURE PDF VIEW
 ========================= */
 router.get("/:id/pdf", auth, async (req, res) => {
-  try {
-    const user = await User.findById(req.userId);
-    const book = await ReferenceBook.findById(req.params.id);
+  const user = await User.findById(req.userId);
+  const book = await ReferenceBook.findById(req.params.id);
 
-    if (!user || !book || !book.isActive) {
-      return res.status(404).json({ message: "Book not found" });
-    }
-
-    if (!user.purchasedBooks.includes(book._id)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const pdfPath = path.join(__dirname, "..", book.pdfUrl);
-
-    if (!fs.existsSync(pdfPath)) {
-      return res.status(404).json({ message: "PDF file missing" });
-    }
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "inline");
-    res.setHeader("Cache-Control", "no-store");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-
-    fs.createReadStream(pdfPath).pipe(res);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "PDF stream failed" });
+  if (!user || !book || !book.isActive) {
+    return res.status(404).json({ message: "Book not found" });
   }
+
+  if (!user.purchasedBooks.includes(book._id)) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  return res.redirect(book.pdfUrl);
 });
 
 module.exports = router;
