@@ -28,11 +28,12 @@ const storage = new CloudinaryStorage({
   params: async (req, file) => {
     if (file.fieldname === "pdf") {
       return {
-        folder: "reference_books/pdfs",
-        resource_type: "raw", // 🔥 REQUIRED
-        public_id: `pdf_${Date.now()}`,
-        format: "pdf",
-      };
+  folder: "reference_books/pdfs",
+  resource_type: "raw",
+  public_id: `pdf_${Date.now()}`,
+  format: "pdf",
+  access_mode: "public", // 🔥 VERY IMPORTANT
+};
     }
 
     return {
