@@ -226,19 +226,17 @@ router.get("/:id/pdf", auth, async (req, res) => {
     // ✅ Extract RAW public_id correctly
     // book.pdfUrl example:
     // https://res.cloudinary.com/xxx/raw/upload/v123/reference_books/pdfs/pdf_1770.pdf
-    const publicId = book.pdfUrl
-      .split("/raw/upload/")[1]
-      .replace(".pdf", "");
+    
 
     // ✅ SIGNED RAW URL (IMPORTANT)
- const signedUrl = cloudinary.url(book.pdfPublicId, {
+ const publicId = book.pdfPublicId.replace(".pdf", "");
+
+const signedUrl = cloudinary.url(publicId, {
   resource_type: "raw",
   secure: true,
   sign_url: true,
-  expires_at: Math.floor(Date.now() / 1000) + 300, // 5 min
+  expires_at: Math.floor(Date.now() / 1000) + 300,
 });
-
-res.json({ url: signedUrl });
 
     res.json({ url: signedUrl });
   } catch (err) {
