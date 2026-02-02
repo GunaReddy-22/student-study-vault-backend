@@ -222,19 +222,19 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // ✅ ONLY correct method for RAW PDFs
-    const signedUrl = cloudinary.utils.private_download_url(
-      book.pdfPublicId,
-      "pdf",
-      {
-        resource_type: "raw",
-        expires_at: Math.floor(Date.now() / 1000) + 300,
-      }
-    );
+    // 🔥 FETCH RAW PDF FROM CLOUDINARY
+    const cloudinaryUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${book.pdfPublicId}`;
 
-    res.json({ url: signedUrl });
+    const response = await axios.get(cloudinaryUrl, {
+      responseType: "stream",
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline; filename=book.pdf");
+
+    response.data.pipe(res);
   } catch (err) {
-    console.error("PDF SIGN ERROR:", err);
+    console.error("PDF STREAM ERROR:", err);
     res.status(500).json({ message: "PDF access failed" });
   }
 });
