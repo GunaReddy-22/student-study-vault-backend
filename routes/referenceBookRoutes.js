@@ -218,17 +218,19 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // ✅ Extract public_id from stored pdfUrl
+    // ✅ Extract RAW public_id correctly
+    // book.pdfUrl example:
+    // https://res.cloudinary.com/xxx/raw/upload/v123/reference_books/pdfs/pdf_1770.pdf
     const publicId = book.pdfUrl
-      .split("/upload/")[1]
+      .split("/raw/upload/")[1]
       .replace(".pdf", "");
 
-    // ✅ Generate signed Cloudinary URL (5 min)
+    // ✅ SIGNED RAW URL (IMPORTANT)
     const signedUrl = cloudinary.url(publicId, {
       resource_type: "raw",
       secure: true,
       sign_url: true,
-      expires_at: Math.floor(Date.now() / 1000) + 300,
+      expires_at: Math.floor(Date.now() / 1000) + 300, // 5 min
     });
 
     res.json({ url: signedUrl });
