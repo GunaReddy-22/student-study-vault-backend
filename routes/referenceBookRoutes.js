@@ -2,7 +2,6 @@ const express = require("express");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
-const axios = require("axios"); // ✅ REQUIRED
 
 const ReferenceBook = require("../models/ReferenceBook");
 const User = require("../models/User");
@@ -23,19 +22,15 @@ cloudinary.config({
 /* =========================
    📁 MULTER + CLOUDINARY
 ========================= */
-/* =========================
-   📁 MULTER + CLOUDINARY
-========================= */
 const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => {
     if (file.fieldname === "pdf") {
       return {
         folder: "reference_books/pdfs",
-        resource_type: "raw",    // 🔥 REQUIRED
-        public_id: `pdf_${Date.now()}`,
-        format: "pdf",
-        access_mode: "public",   // 🔥 REQUIRED
+        resource_type: "raw",
+        public_id: `pdf_${Date.now()}`, // ✅ NO .pdf HERE
+        access_mode: "public",
       };
     }
 
@@ -90,23 +85,24 @@ router.post(
 
       const pdfFile = req.files.pdf[0];
 
-const pdfUrl = pdfFile.path;         // optional (for reference)
-const pdfPublicId = pdfFile.filename; // 🔥 REQUIRED
+      // 🔥 IMPORTANT FIX
+      const pdfPublicId = pdfFile.filename.replace(".pdf", "");
+      const pdfUrl = pdfFile.path; // optional (preview/debug)
       const coverImage = req.files.cover
         ? req.files.cover[0].path
         : null;
 
       const book = await ReferenceBook.create({
-  title: title.trim(),
-  author: author.trim(),
-  subject: subject.trim(),
-  description,
-  price: Number(price),
+        title: title.trim(),
+        author: author.trim(),
+        subject: subject.trim(),
+        description,
+        price: Number(price),
 
-  pdfUrl,          // optional
-  pdfPublicId,     // 🔥 THIS FIXES EVERYTHING
-  coverImage,
-});
+        pdfUrl,
+        pdfPublicId,
+        coverImage,
+      });
 
       res.status(201).json(book);
     } catch (err) {
@@ -211,7 +207,7 @@ router.get("/:id/access", auth, async (req, res) => {
 });
 
 /* =========================
-   🔐 SECURE PDF STREAM
+   🔐 SECURE PDF STREAM (FINAL)
 ========================= */
 router.get("/:id/pdf", auth, async (req, res) => {
   try {
@@ -226,18 +222,17 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // ✅ ONLY correct way for RAW PDFs
-  const signedUrl = cloudinary.utils.private_download_url(
-  book.pdfPublicId.replace(".pdf", ""), // 🔥 MOST IMPORTANT FIX
-  "pdf",
-  {
-    resource_type: "raw",
-    type: "upload", // optional but explicit
-    expires_at: Math.floor(Date.now() / 1000) + 300,
-  }
-);
+    // ✅ ONLY correct method for RAW PDFs
+    const signedUrl = cloudinary.utils.private_download_url(
+      book.pdfPublicId,
+      "pdf",
+      {
+        resource_type: "raw",
+        expires_at: Math.floor(Date.now() / 1000) + 300,
+      }
+    );
 
-res.json({ url: signedUrl });
+    res.json({ url: signedUrl });
   } catch (err) {
     console.error("PDF SIGN ERROR:", err);
     res.status(500).json({ message: "PDF access failed" });
