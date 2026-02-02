@@ -202,7 +202,7 @@ router.get("/:id/access", auth, async (req, res) => {
 });
 
 /* =========================
-   🔐 SECURE PDF STREAM (FINAL FIX)
+   🔐 SECURE PDF STREAM
 ========================= */
 router.get("/:id/pdf", auth, async (req, res) => {
   try {
@@ -217,13 +217,14 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // 🔥 STREAM FROM CLOUDINARY (SERVER SIDE)
+    // 🔐 FETCH PDF FROM CLOUDINARY SERVER-SIDE
     const cloudRes = await axios.get(book.pdfUrl, {
       responseType: "stream",
     });
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Cache-Control", "no-store");
 
     cloudRes.data.pipe(res);
   } catch (err) {
