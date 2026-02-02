@@ -85,20 +85,25 @@ router.post(
         return res.status(400).json({ message: "PDF file required" });
       }
 
-      const pdfUrl = req.files.pdf[0].path;
+      const pdfFile = req.files.pdf[0];
+
+const pdfUrl = pdfFile.path;         // optional (for reference)
+const pdfPublicId = pdfFile.filename; // 🔥 REQUIRED
       const coverImage = req.files.cover
         ? req.files.cover[0].path
         : null;
 
       const book = await ReferenceBook.create({
-        title: title.trim(),
-        author: author.trim(),
-        subject: subject.trim(),
-        description,
-        price: Number(price),
-        pdfUrl,
-        coverImage,
-      });
+  title: title.trim(),
+  author: author.trim(),
+  subject: subject.trim(),
+  description,
+  price: Number(price),
+
+  pdfUrl,          // optional
+  pdfPublicId,     // 🔥 THIS FIXES EVERYTHING
+  coverImage,
+});
 
       res.status(201).json(book);
     } catch (err) {
@@ -226,12 +231,14 @@ router.get("/:id/pdf", auth, async (req, res) => {
       .replace(".pdf", "");
 
     // ✅ SIGNED RAW URL (IMPORTANT)
-    const signedUrl = cloudinary.url(publicId, {
-      resource_type: "raw",
-      secure: true,
-      sign_url: true,
-      expires_at: Math.floor(Date.now() / 1000) + 300, // 5 min
-    });
+ const signedUrl = cloudinary.url(book.pdfPublicId, {
+  resource_type: "raw",
+  secure: true,
+  sign_url: true,
+  expires_at: Math.floor(Date.now() / 1000) + 300, // 5 min
+});
+
+res.json({ url: signedUrl });
 
     res.json({ url: signedUrl });
   } catch (err) {
