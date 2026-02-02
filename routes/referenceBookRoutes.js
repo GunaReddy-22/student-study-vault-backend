@@ -23,17 +23,20 @@ cloudinary.config({
 /* =========================
    📁 MULTER + CLOUDINARY
 ========================= */
+/* =========================
+   📁 MULTER + CLOUDINARY
+========================= */
 const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => {
     if (file.fieldname === "pdf") {
       return {
-  folder: "reference_books/pdfs",
-  resource_type: "raw",
-  public_id: `pdf_${Date.now()}`,
-  format: "pdf",
-  access_mode: "public", // 🔥 VERY IMPORTANT
-};
+        folder: "reference_books/pdfs",
+        resource_type: "raw",    // 🔥 REQUIRED
+        public_id: `pdf_${Date.now()}`,
+        format: "pdf",
+        access_mode: "public",   // 🔥 REQUIRED
+      };
     }
 
     return {
@@ -233,7 +236,6 @@ router.get("/:id/pdf", auth, async (req, res) => {
 
 const signedUrl = cloudinary.url(publicId, {
   resource_type: "raw",
-  type:"upload",
   secure: true,
   sign_url: true,
   expires_at: Math.floor(Date.now() / 1000) + 300,
