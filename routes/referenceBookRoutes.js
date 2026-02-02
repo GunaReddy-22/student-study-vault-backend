@@ -226,20 +226,15 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // ✅ Extract RAW public_id correctly
-    // book.pdfUrl example:
-    // https://res.cloudinary.com/xxx/raw/upload/v123/reference_books/pdfs/pdf_1770.pdf
-    
-
-    // ✅ SIGNED RAW URL (IMPORTANT)
- const publicId = book.pdfPublicId;
-
-const signedUrl = cloudinary.url(publicId, {
-  resource_type: "raw",
-  secure: true,
-  sign_url: true,
-  expires_at: Math.floor(Date.now() / 1000) + 300,
-});
+    // ✅ ONLY correct way for RAW PDFs
+    const signedUrl = cloudinary.utils.private_download_url(
+      book.pdfPublicId, // example: reference_books/pdfs/pdf_1770050765605.pdf
+      "pdf",
+      {
+        resource_type: "raw",
+        expires_at: Math.floor(Date.now() / 1000) + 300, // 5 minutes
+      }
+    );
 
     res.json({ url: signedUrl });
   } catch (err) {
