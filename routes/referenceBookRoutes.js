@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const axios = require("axios"); // ✅ REQUIRED
 
 const ReferenceBook = require("../models/ReferenceBook");
 const User = require("../models/User");
@@ -28,7 +29,7 @@ const storage = new CloudinaryStorage({
     if (file.fieldname === "pdf") {
       return {
         folder: "reference_books/pdfs",
-        resource_type: "raw",          // 🔥 REQUIRED for PDFs
+        resource_type: "raw", // 🔥 REQUIRED
         public_id: `pdf_${Date.now()}`,
         format: "pdf",
       };
@@ -83,7 +84,7 @@ router.post(
         return res.status(400).json({ message: "PDF file required" });
       }
 
-      const pdfUrl = req.files.pdf[0].path;       // Cloudinary URL
+      const pdfUrl = req.files.pdf[0].path;
       const coverImage = req.files.cover
         ? req.files.cover[0].path
         : null;
@@ -101,13 +102,13 @@ router.post(
       res.status(201).json(book);
     } catch (err) {
       console.error("BOOK CREATE ERROR:", err);
-      res.status(500).json({ message: err.message || "Book creation failed" });
+      res.status(500).json({ message: "Book creation failed" });
     }
   }
 );
 
 /* =========================
-   📚 GET ALL BOOKS (PUBLIC)
+   📚 GET ALL BOOKS
 ========================= */
 router.get("/", async (req, res) => {
   try {
@@ -115,7 +116,7 @@ router.get("/", async (req, res) => {
       createdAt: -1,
     });
     res.json(books);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Failed to fetch books" });
   }
 });
@@ -130,7 +131,7 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ message: "Book not found" });
     }
     res.json(book);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Failed to fetch book" });
   }
 });
@@ -156,9 +157,6 @@ router.post("/:id/buy", auth, async (req, res) => {
     }
 
     const developer = await User.findOne({ isDeveloper: true });
-    if (!developer) {
-      return res.status(500).json({ message: "Developer account missing" });
-    }
 
     user.walletBalance -= book.price;
     developer.walletBalance += book.price;
@@ -197,18 +195,14 @@ router.post("/:id/buy", auth, async (req, res) => {
    🔍 CHECK BOOK ACCESS
 ========================= */
 router.get("/:id/access", auth, async (req, res) => {
-  try {
-    const user = await User.findById(req.userId);
-    res.json({
-      hasAccess: user?.purchasedBooks.includes(req.params.id),
-    });
-  } catch {
-    res.status(500).json({ message: "Access check failed" });
-  }
+  const user = await User.findById(req.userId);
+  res.json({
+    hasAccess: user?.purchasedBooks.includes(req.params.id),
+  });
 });
 
 /* =========================
-   🔐 SECURE PDF (SIGNED URL)
+   🔐 SECURE PDF STREAM (FINAL FIX)
 ========================= */
 router.get("/:id/pdf", auth, async (req, res) => {
   try {
@@ -223,18 +217,18 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // 🔐 Signed URL (5 minutes)
-    const signedUrl = cloudinary.url(book.pdfUrl, {
-      resource_type: "raw",
-      secure: true,
-      sign_url: true,
-      expires_at: Math.floor(Date.now() / 1000) + 300,
+    // 🔥 STREAM FROM CLOUDINARY (SERVER SIDE)
+    const cloudRes = await axios.get(book.pdfUrl, {
+      responseType: "stream",
     });
 
-    res.json({ url: signedUrl });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline");
+
+    cloudRes.data.pipe(res);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "PDF access failed" });
+    console.error("PDF STREAM ERROR:", err.message);
+    res.status(500).json({ message: "Failed to stream PDF" });
   }
 });
 
