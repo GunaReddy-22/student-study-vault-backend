@@ -18,6 +18,7 @@ app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ limit: "20mb", extended: true }));
 app.use("/api/wallet",walletRoutes);
 app.use("/api/reference-books", referenceBookRoutes);
+app.use("/uploads", express.static("uploads"));
 
 /* ======================
    DATABASE CONNECTION

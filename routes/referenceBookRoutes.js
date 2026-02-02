@@ -31,12 +31,18 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    if (
-      file.fieldname === "pdf" &&
-      file.mimetype !== "application/pdf"
-    ) {
-      return cb(new Error("Only PDF files allowed"));
+    if (file.fieldname === "pdf") {
+      if (file.mimetype !== "application/pdf") {
+        return cb(new Error("Only PDF files allowed"));
+      }
     }
+
+    if (file.fieldname === "cover") {
+      if (!file.mimetype.startsWith("image/")) {
+        return cb(new Error("Only image files allowed"));
+      }
+    }
+
     cb(null, true);
   },
 });
@@ -51,7 +57,7 @@ const isDeveloper = async (req, res, next) => {
       return res.status(403).json({ message: "Developer access only" });
     }
     next();
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Auth check failed" });
   }
 };
@@ -89,7 +95,7 @@ router.post(
         author,
         subject,
         description,
-        price,
+        price: Number(price),
         pdfUrl,
         coverImage,
       });
@@ -111,7 +117,7 @@ router.get("/", async (req, res) => {
       createdAt: -1,
     });
     res.json(books);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Failed to fetch books" });
   }
 });
@@ -128,7 +134,7 @@ router.get("/:id", async (req, res) => {
     }
 
     res.json(book);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Failed to fetch book" });
   }
 });
@@ -203,7 +209,7 @@ router.get("/:id/access", auth, async (req, res) => {
     const user = await User.findById(req.userId);
     const hasAccess = user?.purchasedBooks.includes(req.params.id);
     res.json({ hasAccess });
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Access check failed" });
   }
 });
