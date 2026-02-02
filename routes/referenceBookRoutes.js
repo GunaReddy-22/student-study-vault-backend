@@ -227,16 +227,17 @@ router.get("/:id/pdf", auth, async (req, res) => {
     }
 
     // ✅ ONLY correct way for RAW PDFs
-    const signedUrl = cloudinary.utils.private_download_url(
-      book.pdfPublicId, // example: reference_books/pdfs/pdf_1770050765605.pdf
-      "pdf",
-      {
-        resource_type: "raw",
-        expires_at: Math.floor(Date.now() / 1000) + 300, // 5 minutes
-      }
-    );
+  const signedUrl = cloudinary.utils.private_download_url(
+  book.pdfPublicId.replace(".pdf", ""), // 🔥 MOST IMPORTANT FIX
+  "pdf",
+  {
+    resource_type: "raw",
+    type: "upload", // optional but explicit
+    expires_at: Math.floor(Date.now() / 1000) + 300,
+  }
+);
 
-    res.json({ url: signedUrl });
+res.json({ url: signedUrl });
   } catch (err) {
     console.error("PDF SIGN ERROR:", err);
     res.status(500).json({ message: "PDF access failed" });
