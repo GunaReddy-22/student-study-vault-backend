@@ -229,10 +229,11 @@ router.get("/:id/pdf", auth, async (req, res) => {
     
 
     // ✅ SIGNED RAW URL (IMPORTANT)
- const publicId = book.pdfPublicId.replace(".pdf", "");
+ const publicId = book.pdfPublicId;
 
 const signedUrl = cloudinary.url(publicId, {
   resource_type: "raw",
+  type:"upload",
   secure: true,
   sign_url: true,
   expires_at: Math.floor(Date.now() / 1000) + 300,
