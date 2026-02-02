@@ -1,6 +1,7 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const multer = require("multer");
 
 const ReferenceBook = require("../models/ReferenceBook");
 const User = require("../models/User");
@@ -8,6 +9,37 @@ const WalletTransaction = require("../models/WalletTransaction");
 const auth = require("../middleware/authMiddleware");
 
 const router = express.Router();
+
+/* =========================
+   📁 MULTER CONFIG
+========================= */
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (file.fieldname === "pdf") {
+      cb(null, "uploads/pdfs");
+    } else if (file.fieldname === "cover") {
+      cb(null, "uploads/covers");
+    }
+  },
+  filename: (req, file, cb) => {
+    const uniqueName =
+      Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueName + path.extname(file.originalname));
+  },
+});
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (
+      file.fieldname === "pdf" &&
+      file.mimetype !== "application/pdf"
+    ) {
+      return cb(new Error("Only PDF files allowed"));
+    }
+    cb(null, true);
+  },
+});
 
 /* =========================
    🔐 DEV-ONLY MIDDLEWARE
@@ -19,7 +51,7 @@ const isDeveloper = async (req, res, next) => {
       return res.status(403).json({ message: "Developer access only" });
     }
     next();
-  } catch {
+  } catch (err) {
     res.status(500).json({ message: "Auth check failed" });
   }
 };
@@ -27,38 +59,48 @@ const isDeveloper = async (req, res, next) => {
 /* =========================
    📚 CREATE REFERENCE BOOK (DEV)
 ========================= */
-router.post("/", auth, isDeveloper, async (req, res) => {
-  try {
-    const {
-      title,
-      author,
-      subject,
-      description,
-      pdfUrl,
-      coverImage,
-      price,
-    } = req.body;
+router.post(
+  "/",
+  auth,
+  isDeveloper,
+  upload.fields([
+    { name: "pdf", maxCount: 1 },
+    { name: "cover", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const { title, author, subject, description, price } = req.body;
 
-    if (!title || !author || !subject || !description || !pdfUrl) {
-      return res.status(400).json({ message: "Missing fields" });
+      if (!title || !author || !subject || !description || !price) {
+        return res.status(400).json({ message: "Missing fields" });
+      }
+
+      if (!req.files?.pdf) {
+        return res.status(400).json({ message: "PDF file required" });
+      }
+
+      const pdfUrl = `/uploads/pdfs/${req.files.pdf[0].filename}`;
+      const coverImage = req.files.cover
+        ? `/uploads/covers/${req.files.cover[0].filename}`
+        : null;
+
+      const book = await ReferenceBook.create({
+        title,
+        author,
+        subject,
+        description,
+        price,
+        pdfUrl,
+        coverImage,
+      });
+
+      res.status(201).json(book);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Book creation failed" });
     }
-
-    const book = await ReferenceBook.create({
-      title,
-      author,
-      subject,
-      description,
-      pdfUrl,
-      coverImage,
-      price,
-    });
-
-    res.status(201).json(book);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Book creation failed" });
   }
-});
+);
 
 /* =========================
    📚 GET ALL BOOKS (PUBLIC)
@@ -69,7 +111,7 @@ router.get("/", async (req, res) => {
       createdAt: -1,
     });
     res.json(books);
-  } catch {
+  } catch (err) {
     res.status(500).json({ message: "Failed to fetch books" });
   }
 });
@@ -86,7 +128,7 @@ router.get("/:id", async (req, res) => {
     }
 
     res.json(book);
-  } catch {
+  } catch (err) {
     res.status(500).json({ message: "Failed to fetch book" });
   }
 });
@@ -120,7 +162,7 @@ router.post("/:id/buy", auth, async (req, res) => {
     developer.walletBalance += book.price;
 
     user.purchasedBooks.push(book._id);
-    book.purchaseCount += 1;
+    book.purchases += 1;
 
     await user.save();
     await developer.save();
@@ -161,7 +203,7 @@ router.get("/:id/access", auth, async (req, res) => {
     const user = await User.findById(req.userId);
     const hasAccess = user?.purchasedBooks.includes(req.params.id);
     res.json({ hasAccess });
-  } catch {
+  } catch (err) {
     res.status(500).json({ message: "Access check failed" });
   }
 });
@@ -182,7 +224,7 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const pdfPath = path.resolve(book.pdfUrl);
+    const pdfPath = path.join(__dirname, "..", book.pdfUrl);
 
     if (!fs.existsSync(pdfPath)) {
       return res.status(404).json({ message: "PDF file missing" });
