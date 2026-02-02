@@ -28,8 +28,8 @@ const storage = new CloudinaryStorage({
     if (file.fieldname === "pdf") {
       return {
         folder: "reference_books/pdfs",
-        resource_type: "raw",
-        public_id: `pdf_${Date.now()}`, // 🔥 REQUIRED
+        resource_type: "raw",          // 🔥 REQUIRED for PDFs
+        public_id: `pdf_${Date.now()}`,
         format: "pdf",
       };
     }
@@ -37,7 +37,7 @@ const storage = new CloudinaryStorage({
     return {
       folder: "reference_books/covers",
       resource_type: "image",
-      public_id: `cover_${Date.now()}`, // 🔥 REQUIRED
+      public_id: `cover_${Date.now()}`,
     };
   },
 });
@@ -83,7 +83,7 @@ router.post(
         return res.status(400).json({ message: "PDF file required" });
       }
 
-      const pdfUrl = req.files.pdf[0].path;
+      const pdfUrl = req.files.pdf[0].path;       // Cloudinary URL
       const coverImage = req.files.cover
         ? req.files.cover[0].path
         : null;
@@ -101,13 +101,13 @@ router.post(
       res.status(201).json(book);
     } catch (err) {
       console.error("BOOK CREATE ERROR:", err);
-      res.status(500).json({ message: err.message });
+      res.status(500).json({ message: err.message || "Book creation failed" });
     }
   }
 );
 
 /* =========================
-   📚 GET ALL BOOKS
+   📚 GET ALL BOOKS (PUBLIC)
 ========================= */
 router.get("/", async (req, res) => {
   try {
@@ -115,7 +115,7 @@ router.get("/", async (req, res) => {
       createdAt: -1,
     });
     res.json(books);
-  } catch {
+  } catch (err) {
     res.status(500).json({ message: "Failed to fetch books" });
   }
 });
@@ -130,13 +130,13 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ message: "Book not found" });
     }
     res.json(book);
-  } catch {
+  } catch (err) {
     res.status(500).json({ message: "Failed to fetch book" });
   }
 });
 
 /* =========================
-   💳 BUY BOOK
+   💳 BUY REFERENCE BOOK
 ========================= */
 router.post("/:id/buy", auth, async (req, res) => {
   try {
@@ -156,6 +156,9 @@ router.post("/:id/buy", auth, async (req, res) => {
     }
 
     const developer = await User.findOne({ isDeveloper: true });
+    if (!developer) {
+      return res.status(500).json({ message: "Developer account missing" });
+    }
 
     user.walletBalance -= book.price;
     developer.walletBalance += book.price;
@@ -191,31 +194,48 @@ router.post("/:id/buy", auth, async (req, res) => {
 });
 
 /* =========================
-   🔍 ACCESS CHECK
+   🔍 CHECK BOOK ACCESS
 ========================= */
 router.get("/:id/access", auth, async (req, res) => {
-  const user = await User.findById(req.userId);
-  res.json({
-    hasAccess: user?.purchasedBooks.includes(req.params.id),
-  });
+  try {
+    const user = await User.findById(req.userId);
+    res.json({
+      hasAccess: user?.purchasedBooks.includes(req.params.id),
+    });
+  } catch {
+    res.status(500).json({ message: "Access check failed" });
+  }
 });
 
 /* =========================
-   🔐 SECURE PDF VIEW
+   🔐 SECURE PDF (SIGNED URL)
 ========================= */
 router.get("/:id/pdf", auth, async (req, res) => {
-  const user = await User.findById(req.userId);
-  const book = await ReferenceBook.findById(req.params.id);
+  try {
+    const user = await User.findById(req.userId);
+    const book = await ReferenceBook.findById(req.params.id);
 
-  if (!user || !book || !book.isActive) {
-    return res.status(404).json({ message: "Book not found" });
+    if (!user || !book || !book.isActive) {
+      return res.status(404).json({ message: "Book not found" });
+    }
+
+    if (!user.purchasedBooks.includes(book._id)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // 🔐 Signed URL (5 minutes)
+    const signedUrl = cloudinary.url(book.pdfUrl, {
+      resource_type: "raw",
+      secure: true,
+      sign_url: true,
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    });
+
+    res.json({ url: signedUrl });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "PDF access failed" });
   }
-
-  if (!user.purchasedBooks.includes(book._id)) {
-    return res.status(403).json({ message: "Access denied" });
-  }
-
-  return res.redirect(book.pdfUrl);
 });
 
 module.exports = router;
