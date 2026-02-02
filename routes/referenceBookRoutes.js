@@ -218,19 +218,23 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // 🔐 FETCH PDF FROM CLOUDINARY SERVER-SIDE
-    const cloudRes = await axios.get(book.pdfUrl, {
-      responseType: "stream",
+    // ✅ Extract public_id from stored pdfUrl
+    const publicId = book.pdfUrl
+      .split("/upload/")[1]
+      .replace(".pdf", "");
+
+    // ✅ Generate signed Cloudinary URL (5 min)
+    const signedUrl = cloudinary.url(publicId, {
+      resource_type: "raw",
+      secure: true,
+      sign_url: true,
+      expires_at: Math.floor(Date.now() / 1000) + 300,
     });
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "inline");
-    res.setHeader("Cache-Control", "no-store");
-
-    cloudRes.data.pipe(res);
+    res.json({ url: signedUrl });
   } catch (err) {
-    console.error("PDF STREAM ERROR:", err.message);
-    res.status(500).json({ message: "Failed to stream PDF" });
+    console.error("PDF SIGN ERROR:", err);
+    res.status(500).json({ message: "PDF access failed" });
   }
 });
 
