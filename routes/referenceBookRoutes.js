@@ -11,6 +11,19 @@ const auth = require("../middleware/authMiddleware");
 const router = express.Router();
 
 /* =========================
+   📁 ENSURE UPLOAD FOLDERS
+========================= */
+const ensureDir = (dir) => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+};
+
+ensureDir("uploads");
+ensureDir("uploads/pdfs");
+ensureDir("uploads/covers");
+
+/* =========================
    📁 MULTER CONFIG
 ========================= */
 const storage = multer.diskStorage({
@@ -19,6 +32,8 @@ const storage = multer.diskStorage({
       cb(null, "uploads/pdfs");
     } else if (file.fieldname === "cover") {
       cb(null, "uploads/covers");
+    } else {
+      cb(new Error("Invalid file field"));
     }
   },
   filename: (req, file, cb) => {
@@ -30,6 +45,9 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB
+  },
   fileFilter: (req, file, cb) => {
     if (file.fieldname === "pdf") {
       if (file.mimetype !== "application/pdf") {
@@ -57,7 +75,8 @@ const isDeveloper = async (req, res, next) => {
       return res.status(403).json({ message: "Developer access only" });
     }
     next();
-  } catch {
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Auth check failed" });
   }
 };
@@ -81,7 +100,7 @@ router.post(
         return res.status(400).json({ message: "Missing fields" });
       }
 
-      if (!req.files?.pdf) {
+      if (!req.files || !req.files.pdf) {
         return res.status(400).json({ message: "PDF file required" });
       }
 
@@ -91,9 +110,9 @@ router.post(
         : null;
 
       const book = await ReferenceBook.create({
-        title,
-        author,
-        subject,
+        title: title.trim(),
+        author: author.trim(),
+        subject: subject.trim(),
         description,
         price: Number(price),
         pdfUrl,
@@ -102,8 +121,8 @@ router.post(
 
       res.status(201).json(book);
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Book creation failed" });
+      console.error("BOOK CREATE ERROR:", err);
+      res.status(500).json({ message: err.message || "Book creation failed" });
     }
   }
 );
@@ -117,7 +136,8 @@ router.get("/", async (req, res) => {
       createdAt: -1,
     });
     res.json(books);
-  } catch {
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch books" });
   }
 });
@@ -134,7 +154,8 @@ router.get("/:id", async (req, res) => {
     }
 
     res.json(book);
-  } catch {
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch book" });
   }
 });
@@ -209,7 +230,7 @@ router.get("/:id/access", auth, async (req, res) => {
     const user = await User.findById(req.userId);
     const hasAccess = user?.purchasedBooks.includes(req.params.id);
     res.json({ hasAccess });
-  } catch {
+  } catch (err) {
     res.status(500).json({ message: "Access check failed" });
   }
 });
