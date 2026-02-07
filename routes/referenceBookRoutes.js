@@ -207,7 +207,7 @@ router.get("/:id/access", auth, async (req, res) => {
 });
 
 /* =========================
-   🔐 SECURE PDF STREAM (FINAL)
+   🔐 GET SIGNED PDF URL (FINAL)
 ========================= */
 router.get("/:id/pdf", auth, async (req, res) => {
   try {
@@ -222,19 +222,21 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // 🔥 FETCH RAW PDF FROM CLOUDINARY
-    const cloudinaryUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${book.pdfPublicId}`;
+    if (!book.pdfPublicId) {
+      return res.status(500).json({ message: "PDF not available" });
+    }
 
-    const response = await axios.get(cloudinaryUrl, {
-      responseType: "stream",
+    const signedUrl = cloudinary.url(book.pdfPublicId, {
+      resource_type: "raw",
+      type: "upload",
+      secure: true,
+      sign_url: true,
+      expires_at: Math.floor(Date.now() / 1000) + 300, // 5 min
     });
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "inline; filename=book.pdf");
-
-    response.data.pipe(res);
+    res.json({ url: signedUrl });
   } catch (err) {
-    console.error("PDF STREAM ERROR:", err);
+    console.error("SIGNED PDF URL ERROR:", err);
     res.status(500).json({ message: "PDF access failed" });
   }
 });
