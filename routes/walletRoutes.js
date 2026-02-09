@@ -1,10 +1,11 @@
 const express = require("express");
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+
 const User = require("../models/User");
 const WalletTransaction = require("../models/WalletTransaction");
 const auth = require("../middleware/authMiddleware");
-const razorpay = require("../src/config/razorpay");
-const crypto = require("crypto");
-
+const razorpay = require("../config/razorpay");
 
 const router = express.Router();
 
@@ -29,121 +30,18 @@ router.get("/", auth, async (req, res) => {
 ========================= */
 router.get("/transactions", auth, async (req, res) => {
   try {
-    const transactions = await WalletTransaction.find({
-      user: req.userId,
-    })
+    const tx = await WalletTransaction.find({ user: req.userId })
       .sort({ createdAt: -1 })
       .limit(50);
 
-    res.json(transactions);
+    res.json(tx);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch transactions" });
   }
 });
 
 /* =========================
-   ADD DEMO MONEY (DEV ONLY)
-   POST /api/wallet/add-demo
-========================= */
-router.post("/add-demo", auth, async (req, res) => {
-  try {
-    const { amount } = req.body;
-    const demoAmount = Number(amount);
-
-    if (!demoAmount || demoAmount <= 0) {
-      return res.status(400).json({ message: "Invalid amount" });
-    }
-
-    const user = await User.findById(req.userId);
-
-    // 🔐 HARD BLOCK — DEV ONLY
-    if (!user || user.isDeveloper !== true) {
-      return res
-        .status(403)
-        .json({ message: "Demo wallet is disabled for users" });
-    }
-
-    // 💰 ADD DEMO MONEY
-    user.walletBalance += demoAmount;
-    await user.save();
-
-    // 🧾 LOG TRANSACTION (CLEAR LABEL)
-    await WalletTransaction.create({
-      user: user._id,
-      type: "CREDIT",
-      amount: demoAmount,
-      reason: "DEV DEMO CREDIT",
-    });
-
-    res.json({
-      message: "Demo money credited (Developer)",
-      balance: user.walletBalance,
-    });
-  } catch (err) {
-    console.error("Demo money error:", err);
-    res.status(500).json({ message: "Failed to add demo money" });
-  }
-});
-
-/* =========================
-   USER WALLET TOP-UP (90/10 SPLIT)
-   POST /api/wallet/topup
-========================= */
-router.post("/topup", auth, async (req, res) => {
-  try {
-    const { amount } = req.body;
-    const totalAmount = Number(amount);
-
-    if (!totalAmount || totalAmount <= 0) {
-      return res.status(400).json({ message: "Invalid amount" });
-    }
-
-    const user = await User.findById(req.userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    const developer = await User.findOne({ isDeveloper: true });
-    if (!developer) {
-      return res.status(500).json({ message: "Developer account missing" });
-    }
-
-    const userShare = Math.floor(totalAmount * 0.9);
-    const developerShare = totalAmount - userShare;
-
-    user.walletBalance += userShare;
-    developer.walletBalance += developerShare;
-
-    await user.save();
-    await developer.save();
-
-    await WalletTransaction.create([
-      {
-        user: user._id,
-        type: "CREDIT",
-        amount: userShare,
-        reason: "Wallet top-up",
-        relatedUser: developer._id,
-      },
-      {
-        user: developer._id,
-        type: "CREDIT",
-        amount: developerShare,
-        reason: "Platform commission",
-        relatedUser: user._id,
-      },
-    ]);
-
-    res.json({
-      message: "Wallet topped up successfully",
-      addedToWallet: userShare,
-      commission: developerShare,
-      balance: user.walletBalance,
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Wallet top-up failed" });
-  }
-});
-/* =========================
-   💳 CREATE RAZORPAY ORDER
+   CREATE RAZORPAY ORDER
    POST /api/wallet/create-order
 ========================= */
 router.post("/create-order", auth, async (req, res) => {
@@ -155,7 +53,7 @@ router.post("/create-order", auth, async (req, res) => {
     }
 
     const order = await razorpay.orders.create({
-      amount: amount * 100, // Razorpay uses paise
+      amount: amount * 100, // paise
       currency: "INR",
       receipt: `wallet_${Date.now()}`,
     });
@@ -164,16 +62,16 @@ router.post("/create-order", auth, async (req, res) => {
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
-      key: process.env.RAZORPAY_KEY_ID,
+      key: process.env.RAZORPAY_KEY_ID, // LIVE KEY
     });
   } catch (err) {
-    console.error("Order creation failed:", err);
+    console.error("Create order error:", err);
     res.status(500).json({ message: "Order creation failed" });
   }
 });
 
 /* =========================
-   ✅ VERIFY RAZORPAY PAYMENT
+   VERIFY PAYMENT & CREDIT WALLET
    POST /api/wallet/verify-payment
 ========================= */
 router.post("/verify-payment", auth, async (req, res) => {
@@ -189,22 +87,26 @@ router.post("/verify-payment", auth, async (req, res) => {
 
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(body.toString())
+      .update(body)
       .digest("hex");
 
     if (expectedSignature !== razorpay_signature) {
       return res.status(400).json({ message: "Invalid payment signature" });
     }
 
-    // 💰 Wallet credit (90/10 logic reused)
     const user = await User.findById(req.userId);
     const developer = await User.findOne({ isDeveloper: true });
 
+    if (!user || !developer) {
+      return res.status(500).json({ message: "Account error" });
+    }
+
+    // 💰 90 / 10 split
     const userShare = Math.floor(amount * 0.9);
-    const developerShare = amount - userShare;
+    const devShare = amount - userShare;
 
     user.walletBalance += userShare;
-    developer.walletBalance += developerShare;
+    developer.walletBalance += devShare;
 
     await user.save();
     await developer.save();
@@ -219,8 +121,9 @@ router.post("/verify-payment", auth, async (req, res) => {
       {
         user: developer._id,
         type: "CREDIT",
-        amount: developerShare,
+        amount: devShare,
         reason: "Platform commission",
+        relatedUser: user._id,
       },
     ]);
 
@@ -229,8 +132,67 @@ router.post("/verify-payment", auth, async (req, res) => {
       balance: user.walletBalance,
     });
   } catch (err) {
-    console.error("Payment verify failed:", err);
+    console.error("Verify payment error:", err);
     res.status(500).json({ message: "Payment verification failed" });
+  }
+});
+
+/* =========================
+   WITHDRAW WALLET (PASSWORD PROTECTED)
+   POST /api/wallet/withdraw
+========================= */
+router.post("/withdraw", auth, async (req, res) => {
+  try {
+    const { amount, password, upiId } = req.body;
+    const withdrawAmount = Number(amount);
+
+    if (!password) {
+      return res.status(400).json({ message: "Password is required" });
+    }
+
+    if (!withdrawAmount || withdrawAmount < 100) {
+      return res
+        .status(400)
+        .json({ message: "Minimum withdrawal amount is ₹100" });
+    }
+
+    if (!upiId) {
+      return res.status(400).json({ message: "UPI ID required" });
+    }
+
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // 🔐 PASSWORD CHECK
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Incorrect password" });
+    }
+
+    if (user.walletBalance < withdrawAmount) {
+      return res.status(400).json({ message: "Insufficient balance" });
+    }
+
+    // 💸 Deduct wallet
+    user.walletBalance -= withdrawAmount;
+    await user.save();
+
+    await WalletTransaction.create({
+      user: user._id,
+      type: "DEBIT",
+      amount: withdrawAmount,
+      reason: "Wallet withdrawal request",
+    });
+
+    // ⚠️ Real payout can be added later (Razorpay Payouts API)
+
+    res.json({
+      message: "Withdrawal request submitted",
+      balance: user.walletBalance,
+    });
+  } catch (err) {
+    console.error("Withdraw error:", err);
+    res.status(500).json({ message: "Withdrawal failed" });
   }
 });
 
