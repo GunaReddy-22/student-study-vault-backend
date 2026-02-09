@@ -5,7 +5,7 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const WalletTransaction = require("../models/WalletTransaction");
 const auth = require("../middleware/authMiddleware");
-const razorpay = require("../config/razorpay");
+const razorpay = require("../src/config/razorpay");
 
 const router = express.Router();
 
