@@ -55,14 +55,14 @@ router.post("/create-order", auth, async (req, res) => {
     const order = await razorpay.orders.create({
       amount: amount * 100, // paise
       currency: "INR",
-      receipt: `wallet_${Date.now()}`,
+      receipt: `wallet_${req.userId}_${Date.now()}`, // 🔐 bind order to user
     });
 
     res.json({
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
-      key: process.env.RAZORPAY_KEY_ID, // LIVE KEY
+      key: process.env.RAZORPAY_KEY_ID,
     });
   } catch (err) {
     console.error("Create order error:", err);
@@ -80,9 +80,13 @@ router.post("/verify-payment", auth, async (req, res) => {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
-      amount,
     } = req.body;
 
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ message: "Payment data missing" });
+    }
+
+    /* 🔐 Verify signature */
     const body = razorpay_order_id + "|" + razorpay_payment_id;
 
     const expectedSignature = crypto
@@ -94,6 +98,28 @@ router.post("/verify-payment", auth, async (req, res) => {
       return res.status(400).json({ message: "Invalid payment signature" });
     }
 
+    /* 🔁 Prevent duplicate credit */
+    const alreadyProcessed = await WalletTransaction.findOne({
+      razorpayPaymentId: razorpay_payment_id,
+    });
+
+    if (alreadyProcessed) {
+      const user = await User.findById(req.userId);
+      return res.json({
+        message: "Payment already processed",
+        balance: user.walletBalance,
+      });
+    }
+
+    /* 🔥 Fetch order from Razorpay (source of truth) */
+    const order = await razorpay.orders.fetch(razorpay_order_id);
+
+    if (!order.receipt.includes(req.userId)) {
+      return res.status(403).json({ message: "Order-user mismatch" });
+    }
+
+    const amountInRupees = order.amount / 100;
+
     const user = await User.findById(req.userId);
     const developer = await User.findOne({ isDeveloper: true });
 
@@ -101,9 +127,9 @@ router.post("/verify-payment", auth, async (req, res) => {
       return res.status(500).json({ message: "Account error" });
     }
 
-    // 💰 90 / 10 split
-    const userShare = Math.floor(amount * 0.9);
-    const devShare = amount - userShare;
+    /* 💰 90 / 10 split */
+    const userShare = Math.floor(amountInRupees * 0.9);
+    const devShare = amountInRupees - userShare;
 
     user.walletBalance += userShare;
     developer.walletBalance += devShare;
@@ -117,6 +143,7 @@ router.post("/verify-payment", auth, async (req, res) => {
         type: "CREDIT",
         amount: userShare,
         reason: "Wallet top-up (Razorpay)",
+        razorpayPaymentId: razorpay_payment_id,
       },
       {
         user: developer._id,
@@ -124,6 +151,7 @@ router.post("/verify-payment", auth, async (req, res) => {
         amount: devShare,
         reason: "Platform commission",
         relatedUser: user._id,
+        razorpayPaymentId: razorpay_payment_id,
       },
     ]);
 
@@ -163,7 +191,6 @@ router.post("/withdraw", auth, async (req, res) => {
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // 🔐 PASSWORD CHECK
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: "Incorrect password" });
@@ -173,7 +200,6 @@ router.post("/withdraw", auth, async (req, res) => {
       return res.status(400).json({ message: "Insufficient balance" });
     }
 
-    // 💸 Deduct wallet
     user.walletBalance -= withdrawAmount;
     await user.save();
 
@@ -183,8 +209,6 @@ router.post("/withdraw", auth, async (req, res) => {
       amount: withdrawAmount,
       reason: "Wallet withdrawal request",
     });
-
-    // ⚠️ Real payout can be added later (Razorpay Payouts API)
 
     res.json({
       message: "Withdrawal request submitted",
