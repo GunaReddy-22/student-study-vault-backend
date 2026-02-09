@@ -159,11 +159,11 @@ router.post("/withdraw", auth, async (req, res) => {
       return res.status(400).json({ message: "Password is required" });
     }
 
-    if (!withdrawAmount || withdrawAmount < 100) {
+    /*if (!withdrawAmount || withdrawAmount < 100) {
       return res
         .status(400)
         .json({ message: "Minimum withdrawal amount is ₹100" });
-    }
+    }*/
 
     if (!upiId) {
       return res.status(400).json({ message: "UPI ID required" });
