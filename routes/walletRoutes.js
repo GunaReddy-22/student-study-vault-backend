@@ -75,6 +75,9 @@ router.post("/create-order", auth, async (req, res) => {
    POST /api/wallet/verify-payment
 ========================= */
 router.post("/verify-payment", auth, async (req, res) => {
+    console.log("====== VERIFY PAYMENT HIT ======");
+  console.log("VERIFY HEADERS:", req.headers.authorization);
+  console.log("VERIFY BODY:", req.body);
   try {
     const {
       razorpay_order_id,
