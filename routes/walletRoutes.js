@@ -68,6 +68,11 @@ router.post("/create-order", auth, async (req, res) => {
     console.error("Create order error:", err);
     res.status(500).json({ message: "Order creation failed" });
   }
+
+  console.log("Razorpay keys:", {
+  key: process.env.RAZORPAY_KEY_ID,
+  secret: !!process.env.RAZORPAY_KEY_SECRET,
+});
 });
 
 /* =========================
