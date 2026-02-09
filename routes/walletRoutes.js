@@ -55,7 +55,7 @@ router.post("/create-order", auth, async (req, res) => {
     const order = await razorpay.orders.create({
       amount: amount * 100, // paise
       currency: "INR",
-      receipt: `wallet_${req.userId}_${Date.now()}`, // 🔐 bind order to user
+      receipt: `w_${Math.floor(Math.random() * 1e9)}`, // ✅ FIX
     });
 
     res.json({
@@ -68,11 +68,6 @@ router.post("/create-order", auth, async (req, res) => {
     console.error("Create order error:", err);
     res.status(500).json({ message: "Order creation failed" });
   }
-
-  console.log("Razorpay keys:", {
-  key: process.env.RAZORPAY_KEY_ID,
-  secret: !!process.env.RAZORPAY_KEY_SECRET,
-});
 });
 
 /* =========================
