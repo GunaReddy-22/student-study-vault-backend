@@ -1,22 +1,27 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
+//const nodemailer = require("nodemailer");
 const User = require("../models/User");
+const { Resend } = require("resend");
+
+
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
 
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 /* ======================
    EMAIL CONFIG
 ====================== */
-const transporter = nodemailer.createTransport({
+/*const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-});
+});*/
 
 /* ======================
    REGISTER
@@ -114,30 +119,38 @@ router.post("/forgot-password", async (req, res) => {
     const { email } = req.body;
 
     const user = await User.findOne({ email });
+
     if (!user) {
       return res.status(404).json({
         message: "User not found",
       });
     }
 
-    // Generate 6 digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
     user.resetOTP = otp;
-    user.resetOTPExpire = Date.now() + 5 * 60 * 1000; // 5 min
+    user.resetOTPExpire = Date.now() + 5 * 60 * 1000;
     await user.save();
 
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+    await resend.emails.send({
+      from: "Student Study Vault <onboarding@resend.dev>",
       to: email,
-      subject: "Student Study Vault - Password Reset OTP",
-      text: `Your OTP is ${otp}. It expires in 5 minutes.`,
+      subject: "Password Reset OTP",
+      html: `
+        <div style="font-family:sans-serif;">
+          <h2>Password Reset</h2>
+          <p>Your OTP is:</p>
+          <h1 style="letter-spacing:4px;">${otp}</h1>
+          <p>This OTP expires in 5 minutes.</p>
+        </div>
+      `,
     });
 
-    res.json({ message: "OTP sent to email" });
+    res.json({ message: "OTP sent successfully" });
+
   } catch (err) {
     console.error("Forgot password error:", err);
-    res.status(500).json({ message: "Error sending OTP" });
+    res.status(500).json({ message: "Failed to send OTP" });
   }
 });
 
