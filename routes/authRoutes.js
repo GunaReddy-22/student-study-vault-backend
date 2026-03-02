@@ -1,7 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
+
 const User = require("../models/User");
 const SibApiV3Sdk = require('sib-api-v3-sdk');
 
