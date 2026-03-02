@@ -179,7 +179,7 @@ router.post("/:id/buy", auth, async (req, res) => {
         amount: book.price,
         reason: "Purchased reference book",
         relatedBook: book._id,
-      },
+      }, 
       {
         user: developer._id,
         type: "CREDIT",

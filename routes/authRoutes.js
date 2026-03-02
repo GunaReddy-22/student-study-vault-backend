@@ -1,41 +1,49 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
 const User = require("../models/User");
 
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET;
 
 /* ======================
-   ENV SAFE SECRET
+   EMAIL CONFIG
 ====================== */
-const JWT_SECRET = process.env.JWT_SECRET;
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
 /* ======================
    REGISTER
 ====================== */
 router.post("/register", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, email, password } = req.body;
 
-    /* Basic validation */
-    if (!username || !password) {
-      return res
-        .status(400)
-        .json({ message: "Username and password required" });
+    if (!username || !email || !password) {
+      return res.status(400).json({ message: "All fields required" });
     }
 
-    /* Check existing user */
-    const existingUser = await User.findOne({ username });
+    const existingUser = await User.findOne({
+      $or: [{ username }, { email }],
+    });
+
     if (existingUser) {
-      return res
-        .status(409)
-        .json({ message: "Username already exists" });
+      return res.status(409).json({
+        message: "Username or Email already exists",
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
     await User.create({
       username,
+      email,
       password: hashedPassword,
     });
 
@@ -49,33 +57,37 @@ router.post("/register", async (req, res) => {
 });
 
 /* ======================
-   LOGIN
+   LOGIN (EMAIL BASED)
 ====================== */
 router.post("/login", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { email, password } = req.body;
 
-    /* Validation */
-    if (!username || !password) {
-      return res
-        .status(400)
-        .json({ message: "Username and password required" });
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Email and password required",
+      });
     }
 
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({
+        message: "Invalid credentials",
+      });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({
+        message: "Invalid credentials",
+      });
     }
 
     const token = jwt.sign(
-      { userId: user._id,
-        isDeveloper:user.isDeveloper ===true,
-       },
+      {
+        userId: user._id,
+        isDeveloper: user.isDeveloper === true,
+      },
       JWT_SECRET,
       { expiresIn: "1d" }
     );
@@ -85,11 +97,121 @@ router.post("/login", async (req, res) => {
       user: {
         id: user._id,
         username: user.username,
+        email: user.email,
       },
     });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ message: "Login failed" });
+  }
+});
+
+/* ======================
+   FORGOT PASSWORD
+====================== */
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    // Generate 6 digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    user.resetOTP = otp;
+    user.resetOTPExpire = Date.now() + 5 * 60 * 1000; // 5 min
+    await user.save();
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Student Study Vault - Password Reset OTP",
+      text: `Your OTP is ${otp}. It expires in 5 minutes.`,
+    });
+
+    res.json({ message: "OTP sent to email" });
+  } catch (err) {
+    console.error("Forgot password error:", err);
+    res.status(500).json({ message: "Error sending OTP" });
+  }
+});
+
+/* ======================
+   VERIFY OTP
+====================== */
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const user = await User.findOne({ email });
+
+    if (
+      !user ||
+      user.resetOTP !== otp ||
+      user.resetOTPExpire < Date.now()
+    ) {
+      return res.status(400).json({
+        message: "Invalid or expired OTP",
+      });
+    }
+
+    // 🔥 Mark OTP as verified
+    user.resetOTP = "VERIFIED";
+    await user.save();
+
+    res.json({ message: "OTP verified" });
+  } catch (err) {
+    res.status(500).json({ message: "OTP verification failed" });
+  }
+});
+
+/* ======================
+   RESET PASSWORD
+====================== */
+/* ======================
+   RESET PASSWORD
+====================== */
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { email, password } = req.body; // 🔥 changed
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Email and new password required",
+      });
+    }
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    if (user.resetOTP !== "VERIFIED"){
+      return res.status(400).json({
+        message: "OTP expired. Please try again.",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    user.password = hashedPassword;
+    user.resetOTP = undefined;
+    user.resetOTPExpire = undefined;
+
+    await user.save();
+
+    res.json({ message: "Password reset successful" });
+  } catch (err) {
+    console.error("Reset error:", err);
+    res.status(500).json({ message: "Reset failed" });
   }
 });
 
