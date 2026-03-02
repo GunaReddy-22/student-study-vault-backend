@@ -3,6 +3,13 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const User = require("../models/User");
+const SibApiV3Sdk = require('sib-api-v3-sdk');
+
+const defaultClient = SibApiV3Sdk.ApiClient.instance;
+const apiKey = defaultClient.authentications['api-key'];
+apiKey.apiKey = process.env.BREVO_API_KEY;
+
+const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 
 
 
@@ -25,7 +32,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 
 
-const transporter = nodemailer.createTransport({
+/*const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT),
   secure: false,        // 587 = false
@@ -34,7 +41,7 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-});
+});*/
 transporter.verify((error, success) => {
   if (error) {
     console.error("SMTP Error:", error);
@@ -152,11 +159,11 @@ router.post("/forgot-password", async (req, res) => {
     user.resetOTPExpire = Date.now() + 5 * 60 * 1000;
     await user.save();
 
-   await transporter.sendMail({
-  from: `"Student Study Vault" <studyvault.otp@gmail.com>`,
-  to: email,
+   await apiInstance.sendTransacEmail({
+  sender: { email: "studyvault.otp@gmail.com", name: "Student Study Vault" },
+  to: [{ email: email }],
   subject: "Password Reset OTP",
-  html: `
+  htmlContent: `
     <div style="font-family:sans-serif;">
       <h2>Password Reset</h2>
       <p>Your OTP is:</p>
