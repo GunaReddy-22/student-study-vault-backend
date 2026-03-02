@@ -42,13 +42,13 @@ const JWT_SECRET = process.env.JWT_SECRET;
     pass: process.env.SMTP_PASS,
   },
 });*/
-transporter.verify((error, success) => {
+/*transporter.verify((error, success) => {
   if (error) {
     console.error("SMTP Error:", error);
   } else {
     console.log("SMTP Server is ready");
   }
-});
+});*/
 
 /* ======================
    REGISTER
