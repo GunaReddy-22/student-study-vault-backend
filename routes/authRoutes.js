@@ -1,16 +1,16 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-//const nodemailer = require("nodemailer");
+const nodemailer = require("nodemailer");
 const User = require("../models/User");
-const { Resend } = require("resend");
+
 
 
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+
 
 /* ======================
    EMAIL CONFIG
@@ -22,6 +22,26 @@ const resend = new Resend(process.env.RESEND_API_KEY);
     pass: process.env.EMAIL_PASS,
   },
 });*/
+
+
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: false,        // 587 = false
+  requireTLS: true,     // 🔥 VERY IMPORTANT
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("SMTP Error:", error);
+  } else {
+    console.log("SMTP Server is ready");
+  }
+});
 
 /* ======================
    REGISTER
@@ -132,19 +152,19 @@ router.post("/forgot-password", async (req, res) => {
     user.resetOTPExpire = Date.now() + 5 * 60 * 1000;
     await user.save();
 
-    await resend.emails.send({
-      from: "Student Study Vault <onboarding@resend.dev>",
-      to: email,
-      subject: "Password Reset OTP",
-      html: `
-        <div style="font-family:sans-serif;">
-          <h2>Password Reset</h2>
-          <p>Your OTP is:</p>
-          <h1 style="letter-spacing:4px;">${otp}</h1>
-          <p>This OTP expires in 5 minutes.</p>
-        </div>
-      `,
-    });
+   await transporter.sendMail({
+  from: `"Student Study Vault" <studyvault.otp@gmail.com>`,
+  to: email,
+  subject: "Password Reset OTP",
+  html: `
+    <div style="font-family:sans-serif;">
+      <h2>Password Reset</h2>
+      <p>Your OTP is:</p>
+      <h1 style="letter-spacing:4px;">${otp}</h1>
+      <p>This OTP expires in 5 minutes.</p>
+    </div>
+  `,
+});
 
     res.json({ message: "OTP sent successfully" });
 
