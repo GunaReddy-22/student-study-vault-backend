@@ -3,8 +3,9 @@ const Note = require("../models/Note");
 const User = require("../models/User");
 const WalletTransaction = require("../models/WalletTransaction");
 const auth = require("../middleware/authMiddleware");
-
+const { indexNote } = require("../services/ragService");
 const router = express.Router();
+
 
 /* =========================
    CREATE NOTE
@@ -31,16 +32,22 @@ router.post("/", auth, async (req, res) => {
     }
 
     const note = await Note.create({
-      subject,
-      title,
-      content,
-      isPublic,
-      isPremium,
-      price: isPremium ? Math.max(Number(price), 1) : 0,
-      userId: req.userId,
-    });
+  subject,
+  title,
+  content,
+  isPublic,
+  isPremium,
+  price: isPremium ? Math.max(Number(price), 1) : 0,
+  userId: req.userId,
+});
 
-    res.status(201).json(note);
+
+await indexNote(
+  note._id.toString(),
+  note.content
+);
+
+res.status(201).json(note);
   } catch (err) {
     console.error("Create failed:", err);
     res.status(500).json({ message: "Create failed" });
@@ -151,7 +158,14 @@ router.put("/:id", auth, async (req, res) => {
     });
 
     await note.save();
-    res.json(note);
+
+
+await indexNote(
+  note._id.toString(),
+  note.content
+);
+
+res.json(note);
   } catch (err) {
     console.error("Update failed:", err);
     res.status(500).json({ message: "Update failed" });
