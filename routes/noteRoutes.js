@@ -42,12 +42,13 @@ router.post("/", auth, async (req, res) => {
 });
 
 
-await indexNote(
-  note._id.toString(),
-  note.content
-);
+    try {
+      await indexNote(note._id.toString(), note.content);
+    } catch (ragErr) {
+      console.warn("[RAG] Vector indexing skipped:", ragErr.message);
+    }
 
-res.status(201).json(note);
+    res.status(201).json(note);
   } catch (err) {
     console.error("Create failed:", err);
     res.status(500).json({ message: "Create failed" });
@@ -160,12 +161,13 @@ router.put("/:id", auth, async (req, res) => {
     await note.save();
 
 
-await indexNote(
-  note._id.toString(),
-  note.content
-);
+    try {
+      await indexNote(note._id.toString(), note.content);
+    } catch (ragErr) {
+      console.warn("[RAG] Vector indexing skipped:", ragErr.message);
+    }
 
-res.json(note);
+    res.json(note);
   } catch (err) {
     console.error("Update failed:", err);
     res.status(500).json({ message: "Update failed" });

@@ -147,9 +147,12 @@ router.get("/:id", async (req, res) => {
 router.post("/:id/buy", auth, async (req, res) => {
   try {
     const user = await User.findById(req.userId);
-    const book = await ReferenceBook.findById(req.params.id);
+    if (!user) {
+      return res.status(401).json({ message: "User not found or session expired. Please log in again." });
+    }
 
-    if (!user || !book || !book.isActive) {
+    const book = await ReferenceBook.findById(req.params.id);
+    if (!book || !book.isActive) {
       return res.status(404).json({ message: "Book not found" });
     }
 
@@ -164,34 +167,41 @@ router.post("/:id/buy", auth, async (req, res) => {
     const developer = await User.findOne({ isDeveloper: true });
 
     user.walletBalance -= book.price;
-    developer.walletBalance += book.price;
+    if (developer) {
+      developer.walletBalance = (developer.walletBalance || 0) + book.price;
+      await developer.save();
+    }
     user.purchasedBooks.push(book._id);
-    book.purchases += 1;
+    book.purchases = (book.purchases || 0) + 1;
 
     await user.save();
-    await developer.save();
     await book.save();
 
-    await WalletTransaction.create([
+    const txs = [
       {
         user: user._id,
         type: "DEBIT",
         amount: book.price,
         reason: "Purchased reference book",
         relatedBook: book._id,
-      }, 
-      {
+      },
+    ];
+
+    if (developer) {
+      txs.push({
         user: developer._id,
         type: "CREDIT",
         amount: book.price,
         reason: "Reference book sale",
         relatedBook: book._id,
-      },
-    ]);
+      });
+    }
+
+    await WalletTransaction.create(txs);
 
     res.json({ message: "Book purchased successfully" });
   } catch (err) {
-    console.error(err);
+    console.error("BUY BOOK ERROR:", err);
     res.status(500).json({ message: "Purchase failed" });
   }
 });

@@ -8,6 +8,7 @@ const noteRoutes = require("./routes/noteRoutes");
 const walletRoutes = require("./routes/walletRoutes");
 const referenceBookRoutes = require("./routes/referenceBookRoutes");
 const aiRoutes = require("./routes/aiRoutes");
+const quizRoutes = require("./routes/quizRoutes");
 
 const app = express();
 
@@ -17,16 +18,19 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ limit: "20mb", extended: true }));
-app.use("/api/wallet",walletRoutes);
+app.use("/api/wallet", walletRoutes);
 app.use("/api/reference-books", referenceBookRoutes);
 app.use("/uploads", express.static("uploads"));
-app.use("/api/ai",aiRoutes);
+app.use("/api/ai", aiRoutes);
+app.use("/api/quizzes", quizRoutes);
 
 /* ======================
    DATABASE CONNECTION
 ====================== */
+const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/student-study-vault";
+
 mongoose
-  .connect(process.env.MONGO_URI)
+  .connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
 

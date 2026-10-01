@@ -1,28 +1,39 @@
 // utils/groq.js
+require("dotenv").config();
 const Groq = require("groq-sdk");
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
-
 const GROQ_MODELS = [
+  "openai/gpt-oss-120b",
+  "qwen/qwen3.8-27b",
   "openai/gpt-oss-20b",
-  "gpt-oss-20b",
-  "llama-3.3-70b-versatile",
-  "llama-3.1-8b-instant",
 ];
 
-async function generateChatCompletion({ messages, temperature = 0.3, maxTokens = 1500 }) {
+function getGroqClient() {
+  return new Groq({
+    apiKey: process.env.GROQ_API_KEY || "placeholder",
+  });
+}
+
+
+
+async function generateChatCompletion({ messages, temperature = 0.25, maxTokens = 4096, responseFormat = null }) {
   let lastError = null;
 
   for (const model of GROQ_MODELS) {
     try {
-      const response = await groq.chat.completions.create({
+      const payload = {
         model,
         messages,
         temperature,
         max_tokens: maxTokens,
-      });
+      };
+
+      if (responseFormat) {
+        payload.response_format = responseFormat;
+      }
+
+      const client = getGroqClient();
+      const response = await client.chat.completions.create(payload);
 
       if (response && response.choices && response.choices[0]?.message?.content) {
         return {
@@ -40,7 +51,8 @@ async function generateChatCompletion({ messages, temperature = 0.3, maxTokens =
 }
 
 module.exports = {
-  groq,
+  groq: getGroqClient(),
+  getGroqClient,
   generateChatCompletion,
   GROQ_MODELS,
 };
