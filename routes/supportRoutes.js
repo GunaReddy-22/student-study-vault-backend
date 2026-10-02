@@ -3,6 +3,12 @@ const router = express.Router();
 const auth = require("../middleware/authMiddleware");
 const User = require("../models/User");
 const SupportTicket = require("../models/SupportTicket");
+const {
+  broadcastNewTicket,
+  broadcastTicketMessage,
+  broadcastTicketStatusUpdate,
+  broadcastTicketDeleted,
+} = require("../utils/supportSocket");
 
 /* ============================================================
  * 🛡️ DEVELOPER / ADMIN MIDDLEWARE FOR CMS SUPPORT CONTROL
@@ -66,10 +72,14 @@ router.post("/tickets", auth, async (req, res) => {
       ],
     });
 
+    // Broadcast new ticket to developer CMS queue in real-time
+    const populatedTicket = await SupportTicket.findById(ticket._id).populate("userId", "username email");
+    broadcastNewTicket(populatedTicket || ticket);
+
     res.status(201).json({
       success: true,
       message: `Support ticket ${ticketId} created successfully.`,
-      ticket,
+      ticket: populatedTicket || ticket,
     });
   } catch (err) {
     console.error("Create Support Ticket Error:", err);
@@ -145,13 +155,15 @@ router.post("/tickets/:id/reply", auth, async (req, res) => {
       return res.status(400).json({ success: false, message: "This ticket is closed. Please create a new ticket." });
     }
 
-    ticket.messages.push({
+    const newMessage = {
       sender: req.userId,
       senderName: user.username,
       role: "user",
       message: message.trim(),
       createdAt: new Date(),
-    });
+    };
+
+    ticket.messages.push(newMessage);
 
     // If ticket was resolved, reopen it since user responded
     if (ticket.status === "resolved") {
@@ -160,10 +172,15 @@ router.post("/tickets/:id/reply", auth, async (req, res) => {
 
     await ticket.save();
 
+    const populatedTicket = await SupportTicket.findById(ticket._id).populate("userId", "username email");
+    
+    // Broadcast message to live conversation room and admin queue
+    broadcastTicketMessage(ticket._id.toString(), newMessage, populatedTicket || ticket);
+
     res.json({
       success: true,
       message: "Reply sent successfully.",
-      ticket,
+      ticket: populatedTicket || ticket,
     });
   } catch (err) {
     console.error("User Ticket Reply Error:", err);
@@ -187,10 +204,13 @@ router.patch("/tickets/:id/close", auth, async (req, res) => {
     ticket.resolvedAt = new Date();
     await ticket.save();
 
+    const populatedTicket = await SupportTicket.findById(ticket._id).populate("userId", "username email");
+    broadcastTicketStatusUpdate(ticket._id.toString(), { status: "closed" }, populatedTicket || ticket);
+
     res.json({
       success: true,
       message: `Ticket ${ticket.ticketId} marked as closed.`,
-      ticket,
+      ticket: populatedTicket || ticket,
     });
   } catch (err) {
     console.error("Close Ticket Error:", err);
@@ -306,6 +326,8 @@ router.patch("/admin/tickets/:id", auth, requireDeveloper, async (req, res) => {
 
     await ticket.save();
 
+    broadcastTicketStatusUpdate(ticket._id.toString(), { status: ticket.status, resolutionNotes: ticket.resolutionNotes }, ticket);
+
     res.json({
       success: true,
       message: `Ticket ${ticket.ticketId} updated successfully.`,
@@ -334,13 +356,15 @@ router.post("/admin/tickets/:id/reply", auth, requireDeveloper, async (req, res)
       return res.status(404).json({ success: false, message: "Ticket not found." });
     }
 
-    ticket.messages.push({
+    const newStaffMessage = {
       sender: req.userId,
       senderName: "StudyVault Support Staff",
       role: "admin",
       message: message.trim(),
       createdAt: new Date(),
-    });
+    };
+
+    ticket.messages.push(newStaffMessage);
 
     if (newStatus && ["open", "in_progress", "resolved", "closed"].includes(newStatus)) {
       ticket.status = newStatus;
@@ -352,6 +376,10 @@ router.post("/admin/tickets/:id/reply", auth, requireDeveloper, async (req, res)
     }
 
     await ticket.save();
+
+    // Broadcast staff reply to student's live chat window in real-time
+    broadcastTicketMessage(ticket._id.toString(), newStaffMessage, ticket);
+    broadcastTicketStatusUpdate(ticket._id.toString(), { status: ticket.status }, ticket);
 
     res.json({
       success: true,
@@ -374,6 +402,8 @@ router.delete("/admin/tickets/:id", auth, requireDeveloper, async (req, res) => 
     if (!ticket) {
       return res.status(404).json({ success: false, message: "Ticket not found." });
     }
+
+    broadcastTicketDeleted(req.params.id);
 
     res.json({
       success: true,

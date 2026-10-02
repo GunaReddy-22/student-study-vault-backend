@@ -51,11 +51,17 @@ app.get("/", (req, res) => {
   res.status(200).send("✅ Student Study Vault Backend Running");
 });
 
+const http = require("http");
+const { initSupportSocket } = require("./utils/supportSocket");
+
+const server = http.createServer(app);
+initSupportSocket(server);
+
 /* ======================
    START SERVER
 ====================== */
 const PORT = process.env.PORT || 4000;
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+server.listen(PORT, () => {
+  console.log(`🚀 Server running with WebSockets on port ${PORT}`);
 });
