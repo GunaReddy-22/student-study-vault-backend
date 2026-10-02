@@ -9,6 +9,7 @@ const WalletTransaction = require("../models/WalletTransaction");
 const CustomQuiz = require("../models/CustomQuiz");
 const QuizAttempt = require("../models/QuizAttempt");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
+const SupportTicket = require("../models/SupportTicket");
 const cloudinaryService = require("../services/cloudinaryService");
 
 /* ============================================================
@@ -52,6 +53,7 @@ router.get("/stats", async (req, res) => {
       recentTransactions,
       recentUsers,
       pendingWithdrawalsCount,
+      openSupportTicketsCount,
     ] = await Promise.all([
       User.countDocuments(),
       Note.countDocuments(),
@@ -70,6 +72,7 @@ router.get("/stats", async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(8),
       WithdrawalRequest.countDocuments({ status: "PENDING" }),
+      SupportTicket.countDocuments({ status: { $in: ["open", "in_progress"] } }),
     ]);
 
     const totalCirculationBalance = allUsers.reduce((acc, u) => acc + (u.walletBalance || 0), 0);
@@ -87,6 +90,7 @@ router.get("/stats", async (req, res) => {
         totalCirculationBalance,
         developerBalance: req.developerUser.walletBalance || 0,
         pendingWithdrawals: pendingWithdrawalsCount,
+        openSupportTickets: openSupportTicketsCount,
       },
       storageProvider: {
         name: "Cloudinary",
