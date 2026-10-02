@@ -32,36 +32,44 @@ router.post("/", auth, async (req, res) => {
         .json({ message: "Premium notes must have a valid price" });
     }
 
-    let finalContent = content;
-    if (content && typeof content === "string" && content.startsWith("data:image")) {
-      try {
-        const uploadRes = await cloudinaryService.uploadBase64Image(content, "studyvault_notes");
-        if (uploadRes.success && uploadRes.url) {
-          finalContent = uploadRes.url;
-        }
-      } catch (cErr) {
-        console.warn("Cloudinary upload failed, saving raw:", cErr.message);
-      }
-    }
-
+    // ⚡ 1. Save note to MongoDB immediately for instant sub-second response
     const note = await Note.create({
       subject,
       title,
-      content: finalContent,
+      content,
       isPublic,
       isPremium,
       price: isPremium ? Math.max(Number(price), 1) : 0,
       userId: req.userId,
     });
 
-
-    try {
-      await indexNote(note._id.toString(), note.content);
-    } catch (ragErr) {
-      console.warn("[RAG] Vector indexing skipped:", ragErr.message);
-    }
-
+    // ⚡ 2. Respond immediately to user without blocking UI
     res.status(201).json(note);
+
+    // 🧠 3. Run heavy background jobs (Cloudinary upload & Vector Embedding) asynchronously
+    setImmediate(async () => {
+      let finalContent = content;
+
+      // Background Cloudinary upload if base64 drawing
+      if (content && typeof content === "string" && content.startsWith("data:image")) {
+        try {
+          const uploadRes = await cloudinaryService.uploadBase64Image(content, "studyvault_notes");
+          if (uploadRes && uploadRes.success && uploadRes.url) {
+            finalContent = uploadRes.url;
+            await Note.findByIdAndUpdate(note._id, { content: finalContent });
+          }
+        } catch (cErr) {
+          console.warn("[Cloudinary Background] Upload failed/skipped:", cErr.message);
+        }
+      }
+
+      // Background vector embedding / RAG indexing
+      try {
+        await indexNote(note._id.toString(), finalContent);
+      } catch (ragErr) {
+        console.warn("[RAG Background] Vector indexing skipped:", ragErr.message);
+      }
+    });
   } catch (err) {
     console.error("Create failed:", err);
     res.status(500).json({ message: "Create failed" });
@@ -162,22 +170,11 @@ router.put("/:id", auth, async (req, res) => {
         .json({ message: "Premium notes must have a valid price" });
     }
 
-    let finalContent = content;
-    if (content && typeof content === "string" && content.startsWith("data:image")) {
-      try {
-        const uploadRes = await cloudinaryService.uploadBase64Image(content, "studyvault_notes");
-        if (uploadRes.success && uploadRes.url) {
-          finalContent = uploadRes.url;
-        }
-      } catch (cErr) {
-        console.warn("Cloudinary upload failed on update:", cErr.message);
-      }
-    }
-
+    // ⚡ 1. Save updates to MongoDB immediately
     Object.assign(note, {
       subject,
       title,
-      content: finalContent,
+      content,
       isPublic,
       isPremium,
       price: isPremium ? Math.max(Number(price), 1) : 0,
@@ -185,14 +182,31 @@ router.put("/:id", auth, async (req, res) => {
 
     await note.save();
 
-
-    try {
-      await indexNote(note._id.toString(), note.content);
-    } catch (ragErr) {
-      console.warn("[RAG] Vector indexing skipped:", ragErr.message);
-    }
-
+    // ⚡ 2. Return response immediately
     res.json(note);
+
+    // 🧠 3. Run background Cloudinary upload and vector indexing
+    setImmediate(async () => {
+      let finalContent = content;
+
+      if (content && typeof content === "string" && content.startsWith("data:image")) {
+        try {
+          const uploadRes = await cloudinaryService.uploadBase64Image(content, "studyvault_notes");
+          if (uploadRes && uploadRes.success && uploadRes.url) {
+            finalContent = uploadRes.url;
+            await Note.findByIdAndUpdate(note._id, { content: finalContent });
+          }
+        } catch (cErr) {
+          console.warn("[Cloudinary Background] Update upload failed/skipped:", cErr.message);
+        }
+      }
+
+      try {
+        await indexNote(note._id.toString(), finalContent);
+      } catch (ragErr) {
+        console.warn("[RAG Background] Vector indexing skipped on update:", ragErr.message);
+      }
+    });
   } catch (err) {
     console.error("Update failed:", err);
     res.status(500).json({ message: "Update failed" });
