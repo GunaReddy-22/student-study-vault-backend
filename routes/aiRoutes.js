@@ -465,9 +465,10 @@ router.post("/quiz/generate", async (req, res) => {
     }
 
     const { note } = access;
-    const content = (note.content || "").trim();
+    let content = (note.content || "").trim();
+    const isHandwritten = content.startsWith("data:image");
 
-    if (!content || content.length < 20) {
+    if (!isHandwritten && (!content || content.length < 10)) {
       return res.status(400).json({
         message: "This note does not have enough content to generate a quiz.",
       });
@@ -476,13 +477,13 @@ router.post("/quiz/generate", async (req, res) => {
     // Attempt Groq LLM Generation
     try {
       const systemPrompt = `You are StudyVault AI Quiz Engine, an expert academic professor.
-Your task is to generate exactly 5 high-quality assessment questions based STRICTLY on the provided note content.
+Your task is to generate exactly 5 high-quality assessment questions based on the provided note topic and subject.
 
 Structure Requirements:
 - EXACTLY 5 questions.
 - Questions 1, 2, 3 MUST be 'mcq' (Multiple Choice with exactly 4 distinct, plausible choices: A, B, C, D).
 - Questions 4, 5 MUST be 'blank' (Fill in the blank with '______' inside the question statement).
-- Every question MUST have a thorough, 1-2 sentence 'explanation' detailing WHY the correct answer is true, citing specific concepts from the note.
+- Every question MUST have a thorough, 1-2 sentence 'explanation' detailing WHY the correct answer is true, citing foundational concepts.
 - Output MUST be a valid raw JSON object matching this schema:
 
 {
@@ -498,13 +499,20 @@ Structure Requirements:
       "correctAnswer": "Option A",
       "hint": "Brief concept clue",
       "topic": "Specific sub-topic name",
-      "explanation": "Detailed explanation citing the note"
+      "explanation": "Detailed explanation citing the concept"
     },
     ...
   ]
 }`;
 
-      const userPrompt = `Note Title: ${note.title}
+      const userPrompt = isHandwritten
+        ? `This is a handwritten study note with diagrams.
+Note Title: ${note.title}
+Subject: ${note.subject}
+Key Topics: Core principles, formulas, definitions, and applications related to ${note.title} in ${note.subject}.
+
+Generate 5 rigorous, insightful academic quiz questions testing a student's mastery of ${note.title} (${note.subject}) now in valid JSON.`
+        : `Note Title: ${note.title}
 Subject: ${note.subject}
 Note Content:
 ${content.slice(0, 10000)}

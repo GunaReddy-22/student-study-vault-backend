@@ -1,4 +1,5 @@
 const QuizAttempt = require("../models/QuizAttempt");
+const CustomQuiz = require("../models/CustomQuiz");
 const {
   EXAM_PRESETS,
   fetchFromOpenTriviaDB,
@@ -10,9 +11,23 @@ const {
  */
 exports.getCategories = async (req, res) => {
   try {
+    const customQuizzes = await CustomQuiz.find({ isPublished: true })
+      .select("title category subject topic difficulty timeMinutes questions")
+      .sort({ createdAt: -1 });
+
     return res.status(200).json({
       success: true,
       categories: EXAM_PRESETS,
+      customQuizzes: customQuizzes.map((cq) => ({
+        id: cq._id,
+        title: cq.title,
+        category: cq.category,
+        subject: cq.subject,
+        topic: cq.topic,
+        difficulty: cq.difficulty,
+        timeMinutes: cq.timeMinutes,
+        questionCount: cq.questions ? cq.questions.length : 0,
+      })),
     });
   } catch (err) {
     console.error("Failed to get quiz categories:", err);
@@ -26,6 +41,7 @@ exports.getCategories = async (req, res) => {
 exports.generateQuiz = async (req, res) => {
   try {
     const {
+      customQuizId,
       examId = "gate-cs",
       examName = "GATE (Computer Science)",
       subject = "Core Computer Science",
@@ -33,6 +49,26 @@ exports.generateQuiz = async (req, res) => {
       difficulty = "Medium",
       count = 5,
     } = req.body;
+
+    // Handle Custom Quiz from CMS
+    if (customQuizId) {
+      const cq = await CustomQuiz.findById(customQuizId);
+      if (cq && cq.questions && cq.questions.length > 0) {
+        return res.status(200).json({
+          success: true,
+          quiz: {
+            id: `cq_${cq._id}_${Date.now()}`,
+            examId: `custom_${cq._id}`,
+            examName: cq.title,
+            subject: cq.subject,
+            topic: cq.topic,
+            difficulty: cq.difficulty,
+            timeMinutes: cq.timeMinutes || 15,
+            questions: cq.questions,
+          },
+        });
+      }
+    }
 
     const numQuestions = Math.min(20, Math.max(3, parseInt(count, 10) || 5));
 
@@ -108,6 +144,7 @@ exports.submitQuiz = async (req, res) => {
       if (isCorrect) correctCount++;
       return {
         question: q.question,
+        imageUrl: q.imageUrl || "",
         options: q.options,
         selectedAnswer: q.selectedAnswer,
         correctAnswer: q.correctAnswer,

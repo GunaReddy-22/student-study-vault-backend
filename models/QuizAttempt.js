@@ -49,6 +49,7 @@ const quizAttemptSchema = new mongoose.Schema(
     questions: [
       {
         question: String,
+        imageUrl: String,
         options: [String],
         selectedAnswer: Number, // index selected by student (-1 for unattempted)
         correctAnswer: Number,  // index of correct option

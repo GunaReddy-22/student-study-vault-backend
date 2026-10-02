@@ -4,6 +4,7 @@ const User = require("../models/User");
 const WalletTransaction = require("../models/WalletTransaction");
 const auth = require("../middleware/authMiddleware");
 const { indexNote } = require("../services/ragService");
+const cloudinaryService = require("../services/cloudinaryService");
 const router = express.Router();
 
 
@@ -31,15 +32,27 @@ router.post("/", auth, async (req, res) => {
         .json({ message: "Premium notes must have a valid price" });
     }
 
+    let finalContent = content;
+    if (content && typeof content === "string" && content.startsWith("data:image")) {
+      try {
+        const uploadRes = await cloudinaryService.uploadBase64Image(content, "studyvault_notes");
+        if (uploadRes.success && uploadRes.url) {
+          finalContent = uploadRes.url;
+        }
+      } catch (cErr) {
+        console.warn("Cloudinary upload failed, saving raw:", cErr.message);
+      }
+    }
+
     const note = await Note.create({
-  subject,
-  title,
-  content,
-  isPublic,
-  isPremium,
-  price: isPremium ? Math.max(Number(price), 1) : 0,
-  userId: req.userId,
-});
+      subject,
+      title,
+      content: finalContent,
+      isPublic,
+      isPremium,
+      price: isPremium ? Math.max(Number(price), 1) : 0,
+      userId: req.userId,
+    });
 
 
     try {
@@ -149,10 +162,22 @@ router.put("/:id", auth, async (req, res) => {
         .json({ message: "Premium notes must have a valid price" });
     }
 
+    let finalContent = content;
+    if (content && typeof content === "string" && content.startsWith("data:image")) {
+      try {
+        const uploadRes = await cloudinaryService.uploadBase64Image(content, "studyvault_notes");
+        if (uploadRes.success && uploadRes.url) {
+          finalContent = uploadRes.url;
+        }
+      } catch (cErr) {
+        console.warn("Cloudinary upload failed on update:", cErr.message);
+      }
+    }
+
     Object.assign(note, {
       subject,
       title,
-      content,
+      content: finalContent,
       isPublic,
       isPremium,
       price: isPremium ? Math.max(Number(price), 1) : 0,

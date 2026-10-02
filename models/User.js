@@ -46,6 +46,11 @@ const UserSchema = new mongoose.Schema({
     default: false,
   },
 
+  isBanned: {
+    type: Boolean,
+    default: false,
+  },
+
   // 🔐 Forgot Password Fields
   resetOTP: {
     type: String,

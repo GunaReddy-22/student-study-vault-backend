@@ -4,6 +4,7 @@ const bcrypt = require("bcryptjs");
 
 const User = require("../models/User");
 const WalletTransaction = require("../models/WalletTransaction");
+const WithdrawalRequest = require("../models/WithdrawalRequest");
 const auth = require("../middleware/authMiddleware");
 const razorpay = require("../src/config/razorpay");
 
@@ -147,26 +148,44 @@ router.post("/verify-payment", auth, async (req, res) => {
 });
 
 /* =========================
-   WITHDRAW WALLET (PASSWORD PROTECTED)
+const WithdrawalRequest = require("../models/WithdrawalRequest");
+
+/* =========================
+   GET MY WITHDRAWAL REQUESTS
+   GET /api/wallet/my-withdrawals
+========================= */
+router.get("/my-withdrawals", auth, async (req, res) => {
+  try {
+    const requests = await WithdrawalRequest.find({ user: req.userId }).sort({ createdAt: -1 });
+    res.json({ success: true, requests });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to fetch withdrawal requests" });
+  }
+});
+
+/* =========================
+   WITHDRAW WALLET (PASSWORD PROTECTED & ESCROWED)
    POST /api/wallet/withdraw
 ========================= */
 router.post("/withdraw", auth, async (req, res) => {
   try {
-    const { amount, password, upiId } = req.body;
+    const { amount, password, upiId, method = "UPI", accountHolderName, bankAccountNumber, ifscCode } = req.body;
     const withdrawAmount = Number(amount);
 
     if (!password) {
       return res.status(400).json({ message: "Password is required" });
     }
 
-    /*if (!withdrawAmount || withdrawAmount < 100) {
-      return res
-        .status(400)
-        .json({ message: "Minimum withdrawal amount is ₹100" });
-    }*/
+    if (!withdrawAmount || withdrawAmount < 10) {
+      return res.status(400).json({ message: "Minimum withdrawal amount is ₹10" });
+    }
 
-    if (!upiId) {
-      return res.status(400).json({ message: "UPI ID required" });
+    if (method === "UPI" && (!upiId || !upiId.trim())) {
+      return res.status(400).json({ message: "Valid UPI ID is required (e.g., student@okaxis)" });
+    }
+
+    if (method === "BANK_TRANSFER" && (!bankAccountNumber || !ifscCode)) {
+      return res.status(400).json({ message: "Account number and IFSC code are required for bank transfer" });
     }
 
     const user = await User.findById(req.userId);
@@ -174,30 +193,46 @@ router.post("/withdraw", auth, async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ message: "Incorrect password" });
+      return res.status(401).json({ message: "Incorrect password. Authorization failed." });
     }
 
     if (user.walletBalance < withdrawAmount) {
-      return res.status(400).json({ message: "Insufficient balance" });
+      return res.status(400).json({ message: `Insufficient balance. You currently have ₹${user.walletBalance}` });
     }
 
+    // Deduct and escrow amount until Developer approves or rejects
     user.walletBalance -= withdrawAmount;
     await user.save();
 
+    // Create formal WithdrawalRequest document
+    const withdrawalDoc = await WithdrawalRequest.create({
+      user: user._id,
+      amount: withdrawAmount,
+      method,
+      upiId: upiId ? upiId.trim() : "",
+      accountHolderName: accountHolderName ? accountHolderName.trim() : user.username,
+      bankAccountNumber: bankAccountNumber ? bankAccountNumber.trim() : "",
+      ifscCode: ifscCode ? ifscCode.trim().toUpperCase() : "",
+      status: "PENDING",
+    });
+
+    // Record audit trail
     await WalletTransaction.create({
       user: user._id,
       type: "DEBIT",
       amount: withdrawAmount,
-      reason: "Wallet withdrawal request",
+      reason: `Withdrawal Request: ₹${withdrawAmount} to ${method === "UPI" ? `UPI [${upiId}]` : `Bank A/C`}`,
     });
 
     res.json({
-      message: "Withdrawal request submitted",
+      success: true,
+      message: "Withdrawal request submitted! Developer admin will process payment to your source shortly.",
       balance: user.walletBalance,
+      withdrawal: withdrawalDoc,
     });
   } catch (err) {
     console.error("Withdraw error:", err);
-    res.status(500).json({ message: "Withdrawal failed" });
+    res.status(500).json({ message: "Withdrawal request failed" });
   }
 });
 

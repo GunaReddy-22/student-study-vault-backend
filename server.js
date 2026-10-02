@@ -9,6 +9,7 @@ const walletRoutes = require("./routes/walletRoutes");
 const referenceBookRoutes = require("./routes/referenceBookRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const quizRoutes = require("./routes/quizRoutes");
+const cmsRoutes = require("./routes/cmsRoutes");
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use("/api/reference-books", referenceBookRoutes);
 app.use("/uploads", express.static("uploads"));
 app.use("/api/ai", aiRoutes);
 app.use("/api/quizzes", quizRoutes);
+app.use("/api/cms", cmsRoutes);
 
 /* ======================
    DATABASE CONNECTION
