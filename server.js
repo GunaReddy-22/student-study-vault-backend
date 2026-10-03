@@ -11,6 +11,7 @@ const aiRoutes = require("./routes/aiRoutes");
 const quizRoutes = require("./routes/quizRoutes");
 const cmsRoutes = require("./routes/cmsRoutes");
 const supportRoutes = require("./routes/supportRoutes");
+const freeResourceRoutes = require("./routes/freeResourceRoutes");
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/quizzes", quizRoutes);
 app.use("/api/cms", cmsRoutes);
 app.use("/api/support", supportRoutes);
+app.use("/api/study-resources", freeResourceRoutes);
 
 /* ======================
    DATABASE CONNECTION

@@ -10,6 +10,7 @@ const CustomQuiz = require("../models/CustomQuiz");
 const QuizAttempt = require("../models/QuizAttempt");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
 const SupportTicket = require("../models/SupportTicket");
+const FreeStudyResource = require("../models/FreeStudyResource");
 const cloudinaryService = require("../services/cloudinaryService");
 
 /* ============================================================
@@ -54,6 +55,7 @@ router.get("/stats", async (req, res) => {
       recentUsers,
       pendingWithdrawalsCount,
       openSupportTicketsCount,
+      totalFreeResourcesCount,
     ] = await Promise.all([
       User.countDocuments(),
       Note.countDocuments(),
@@ -73,6 +75,7 @@ router.get("/stats", async (req, res) => {
         .limit(8),
       WithdrawalRequest.countDocuments({ status: "PENDING" }),
       SupportTicket.countDocuments({ status: { $in: ["open", "in_progress"] } }),
+      FreeStudyResource.countDocuments(),
     ]);
 
     const totalCirculationBalance = allUsers.reduce((acc, u) => acc + (u.walletBalance || 0), 0);
@@ -88,6 +91,7 @@ router.get("/stats", async (req, res) => {
         totalQuizzes: customQuizzesCount,
         allAttemptsCount,
         totalCirculationBalance,
+        totalFreeResources: totalFreeResourcesCount,
         developerBalance: req.developerUser.walletBalance || 0,
         pendingWithdrawals: pendingWithdrawalsCount,
         openSupportTickets: openSupportTicketsCount,
@@ -744,6 +748,257 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
   } catch (err) {
     console.error("CMS Reject Withdrawal Error:", err);
     res.status(500).json({ success: false, message: "Failed to reject withdrawal" });
+  }
+});
+
+/* ============================================================
+ * 🏛️ 9. CMS FREE STUDY HUB & CHAPTER-WISE RESOURCE MANAGER
+ * ============================================================ */
+
+// GET /api/cms/free-resources - List all CMS free study resources with filter
+router.get("/free-resources", async (req, res) => {
+  try {
+    const { examId, subject, search } = req.query;
+    const filter = {};
+
+    if (examId && examId !== "all") {
+      filter.examId = examId;
+    }
+    if (subject && subject !== "all") {
+      filter.subject = new RegExp(subject, "i");
+    }
+    if (search && search.trim()) {
+      const q = search.trim();
+      filter.$or = [
+        { title: new RegExp(q, "i") },
+        { chapterTitle: new RegExp(q, "i") },
+        { whatToStudy: new RegExp(q, "i") },
+        { keyConcepts: { $elemMatch: { $regex: q, $options: "i" } } },
+      ];
+    }
+
+    const resources = await FreeStudyResource.find(filter)
+      .sort({ createdAt: -1 })
+      .populate("createdBy", "username email");
+
+    res.json({
+      success: true,
+      count: resources.length,
+      resources,
+    });
+  } catch (err) {
+    console.error("CMS Get Free Resources Error:", err);
+    res.status(500).json({ success: false, message: "Failed to fetch free study resources" });
+  }
+});
+
+// POST /api/cms/free-resources - Create a new Free Study Resource
+router.post("/free-resources", async (req, res) => {
+  try {
+    const {
+      title,
+      examId,
+      subject,
+      subjectIcon,
+      subjectWeightage,
+      chapterNo,
+      chapterTitle,
+      importance,
+      whatToStudy,
+      keyConcepts,
+      pyqFocus,
+      freeVideoUrl,
+      freeVideoChannel,
+      freeBookName,
+      freeBookUrl,
+      freeBookType,
+      officialPortalUrl,
+      isPublished,
+    } = req.body;
+
+    if (!title || !subject) {
+      return res.status(400).json({ success: false, message: "Title and Subject are required" });
+    }
+
+    const conceptsArray = Array.isArray(keyConcepts)
+      ? keyConcepts
+      : typeof keyConcepts === "string"
+      ? keyConcepts.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+
+    const newResource = await FreeStudyResource.create({
+      title: title.trim(),
+      examId: examId || "general",
+      subject: subject.trim(),
+      subjectIcon: subjectIcon || "📚",
+      subjectWeightage: subjectWeightage || "Standard Topic",
+      chapterNo: Number(chapterNo) || 1,
+      chapterTitle: (chapterTitle || title).trim(),
+      importance: importance || "High Yield",
+      whatToStudy: whatToStudy ? whatToStudy.trim() : "",
+      keyConcepts: conceptsArray,
+      pyqFocus: pyqFocus ? pyqFocus.trim() : "",
+      freeVideoUrl: freeVideoUrl ? freeVideoUrl.trim() : "",
+      freeVideoChannel: freeVideoChannel ? freeVideoChannel.trim() : "YouTube Open Course",
+      freeBookName: freeBookName ? freeBookName.trim() : "",
+      freeBookUrl: freeBookUrl ? freeBookUrl.trim() : "",
+      freeBookType: freeBookType ? freeBookType.trim() : "100% Free Public Resource",
+      officialPortalUrl: officialPortalUrl ? officialPortalUrl.trim() : "",
+      isPublished: isPublished !== false,
+      createdBy: req.developerUser._id,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `✅ Created "${newResource.title}" in Free Study Hub!`,
+      resource: newResource,
+    });
+  } catch (err) {
+    console.error("CMS Create Free Resource Error:", err);
+    res.status(500).json({ success: false, message: "Failed to create free study resource", error: err.message });
+  }
+});
+
+// PUT /api/cms/free-resources/:id - Update existing Free Study Resource
+router.put("/free-resources/:id", async (req, res) => {
+  try {
+    const resource = await FreeStudyResource.findById(req.params.id);
+    if (!resource) {
+      return res.status(404).json({ success: false, message: "Resource not found" });
+    }
+
+    const {
+      title,
+      examId,
+      subject,
+      subjectIcon,
+      subjectWeightage,
+      chapterNo,
+      chapterTitle,
+      importance,
+      whatToStudy,
+      keyConcepts,
+      pyqFocus,
+      freeVideoUrl,
+      freeVideoChannel,
+      freeBookName,
+      freeBookUrl,
+      freeBookType,
+      officialPortalUrl,
+      isPublished,
+    } = req.body;
+
+    if (title !== undefined) resource.title = title.trim();
+    if (examId !== undefined) resource.examId = examId;
+    if (subject !== undefined) resource.subject = subject.trim();
+    if (subjectIcon !== undefined) resource.subjectIcon = subjectIcon;
+    if (subjectWeightage !== undefined) resource.subjectWeightage = subjectWeightage;
+    if (chapterNo !== undefined) resource.chapterNo = Number(chapterNo);
+    if (chapterTitle !== undefined) resource.chapterTitle = chapterTitle.trim();
+    if (importance !== undefined) resource.importance = importance;
+    if (whatToStudy !== undefined) resource.whatToStudy = whatToStudy.trim();
+    if (keyConcepts !== undefined) {
+      resource.keyConcepts = Array.isArray(keyConcepts)
+        ? keyConcepts
+        : typeof keyConcepts === "string"
+        ? keyConcepts.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
+    }
+    if (pyqFocus !== undefined) resource.pyqFocus = pyqFocus.trim();
+    if (freeVideoUrl !== undefined) resource.freeVideoUrl = freeVideoUrl.trim();
+    if (freeVideoChannel !== undefined) resource.freeVideoChannel = freeVideoChannel.trim();
+    if (freeBookName !== undefined) resource.freeBookName = freeBookName.trim();
+    if (freeBookUrl !== undefined) resource.freeBookUrl = freeBookUrl.trim();
+    if (freeBookType !== undefined) resource.freeBookType = freeBookType.trim();
+    if (officialPortalUrl !== undefined) resource.officialPortalUrl = officialPortalUrl.trim();
+    if (isPublished !== undefined) resource.isPublished = Boolean(isPublished);
+
+    await resource.save();
+
+    res.json({
+      success: true,
+      message: `✅ Updated "${resource.title}" successfully!`,
+      resource,
+    });
+  } catch (err) {
+    console.error("CMS Update Free Resource Error:", err);
+    res.status(500).json({ success: false, message: "Failed to update resource" });
+  }
+});
+
+// DELETE /api/cms/free-resources/:id - Delete a free study resource
+router.delete("/free-resources/:id", async (req, res) => {
+  try {
+    const resource = await FreeStudyResource.findByIdAndDelete(req.params.id);
+    if (!resource) {
+      return res.status(404).json({ success: false, message: "Resource not found" });
+    }
+    res.json({
+      success: true,
+      message: `🗑️ Successfully deleted "${resource.title}" from Free Study Hub`,
+    });
+  } catch (err) {
+    console.error("CMS Delete Free Resource Error:", err);
+    res.status(500).json({ success: false, message: "Failed to delete resource" });
+  }
+});
+
+// PATCH /api/cms/free-resources/:id/toggle-publish - Quick toggle publish status
+router.patch("/free-resources/:id/toggle-publish", async (req, res) => {
+  try {
+    const resource = await FreeStudyResource.findById(req.params.id);
+    if (!resource) {
+      return res.status(404).json({ success: false, message: "Resource not found" });
+    }
+    resource.isPublished = !resource.isPublished;
+    await resource.save();
+
+    res.json({
+      success: true,
+      message: `Resource is now ${resource.isPublished ? "PUBLISHED (Live for students)" : "UNPUBLISHED (Draft)"}`,
+      isPublished: resource.isPublished,
+    });
+  } catch (err) {
+    console.error("CMS Toggle Publish Error:", err);
+    res.status(500).json({ success: false, message: "Failed to toggle status" });
+  }
+});
+
+// POST /api/cms/free-resources/seed-curriculum - Bulk seed standard curated free study guides
+router.post("/free-resources/seed-curriculum", async (req, res) => {
+  try {
+    const { CURRICULUM_SEED_RESOURCES } = require("../services/curriculumSeedData");
+    let insertedCount = 0;
+    let updatedCount = 0;
+
+    for (const item of CURRICULUM_SEED_RESOURCES) {
+      const existing = await FreeStudyResource.findOne({
+        examId: item.examId,
+        chapterTitle: item.chapterTitle,
+      });
+
+      if (!existing) {
+        await FreeStudyResource.create({
+          ...item,
+          createdBy: req.developerUser._id,
+        });
+        insertedCount++;
+      } else {
+        Object.assign(existing, item);
+        await existing.save();
+        updatedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `🎉 Successfully populated Study Hub with ${insertedCount + updatedCount} verified NCERT & Exam chapter guides! (${insertedCount} new, ${updatedCount} updated)`,
+      insertedCount,
+      updatedCount,
+    });
+  } catch (err) {
+    console.error("CMS Seed Free Resources Error:", err);
+    res.status(500).json({ success: false, message: "Failed to seed curriculum resources", error: err.message });
   }
 });
 
